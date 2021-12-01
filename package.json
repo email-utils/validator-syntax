@@ -23,6 +23,9 @@
   },
   "author": "Simeon Smith <hello@simeonsmith.dev> (https://www.simeonsmith.dev)",
   "license": "MIT",
+  "dependencies": {
+    "tlds": "^1.226.0"
+  },
   "devDependencies": {
     "@types/chai": "^4.2.22",
     "@types/mocha": "^9.0.0",
