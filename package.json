@@ -1,6 +1,6 @@
 {
   "name": "@email-utils/validator-syntax",
-  "version": "0.0.1-0",
+  "version": "0.0.1-1",
   "description": "Configurable email syntax validator.",
   "main": "dist/index.js",
   "scripts": {
