@@ -6,5 +6,6 @@ version=`git diff HEAD^..HEAD -- "$(git rev-parse --show-toplevel)"/package.json
 
 echo "Creating version $version."
 
+git push
 git push --tags
 npm publish --access public
