@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "test": "ts-mocha test/**/*.test.ts",
-    "report-coverage": "nyc npm test"
+    "report-coverage": "nyc npm test",
+    "release": "./bin/tag.sh"
   },
   "repository": {
     "type": "git",
