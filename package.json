@@ -81,8 +81,5 @@
   "prettier": {
     "semi": false,
     "singleQuote": true
-  },
-  "dependencies": {
-    "tlds": "^1.226.0"
   }
 }
