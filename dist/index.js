@@ -244,8 +244,12 @@ class EmailSyntaxValidator {
     }
     validate(email) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (typeof email !== 'string' || !email) {
-                console.error('No email provided.', email);
+            if (typeof email !== 'string') {
+                console.error('Email not a string.', email);
+                return false;
+            }
+            else if (!email) {
+                console.error('Email not provided.', email);
                 return false;
             }
             this.email = email;
