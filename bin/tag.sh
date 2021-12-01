@@ -7,4 +7,4 @@ version=`git diff HEAD^..HEAD -- "$(git rev-parse --show-toplevel)"/package.json
 echo "Creating version $version."
 
 git push --tags
-npm publish
+npm publish --access public
