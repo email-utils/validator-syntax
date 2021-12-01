@@ -50,7 +50,6 @@ class EmailSyntaxValidator {
         this.email = '';
         this.originalEmail = '';
         let key;
-        console.log('validate config');
         for (key in configParam) {
             const configGroup = configParam[key];
             for (const subKey in configGroup) {
