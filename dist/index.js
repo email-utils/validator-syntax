@@ -244,6 +244,10 @@ class EmailSyntaxValidator {
     }
     validate(email) {
         return __awaiter(this, void 0, void 0, function* () {
+            if (!email) {
+                console.error('No email provided.', email);
+                return false;
+            }
             this.email = email;
             const generalValid = this.validateGeneral();
             if (!generalValid) {
