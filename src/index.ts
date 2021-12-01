@@ -311,8 +311,11 @@ class EmailSyntaxValidator {
   }
 
   public async validate(email: string): Promise<boolean> {
-    if (typeof email !== 'string' || !email) {
-      console.error('No email provided.', email)
+    if (typeof email !== 'string') {
+      console.error('Email not a string.', email)
+      return false
+    } else if (!email) {
+      console.error('Email not provided.', email)
       return false
     }
 
