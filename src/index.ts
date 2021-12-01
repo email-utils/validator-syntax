@@ -43,9 +43,7 @@ class EmailSyntaxValidator {
 
   constructor(configParam: EmailValidatorParam = {} as EmailValidatorParam) {
     let key: keyof EmailValidatorConfig
-
-    console.log('validate config')
-
+    
     for (key in configParam) {
       const configGroup = configParam[key]
       for (const subKey in configGroup) {
