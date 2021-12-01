@@ -1,4 +1,8 @@
-# ssmith-is-valid-email
+# Email Syntax Validator
+
+## **THIS IS NOT READY FOR PRODUCTION**
+
+This has not been fully documented or tested. Do not use for production.
 ## A Robust Tool for Validating Emails
 
 [ ![Codeship Status for ssmith-wombatweb/is-valid-email](https://app.codeship.com/projects/7f59b370-6794-0136-94ad-6607b51510b1/status?branch=master)](https://app.codeship.com/projects/297684)
