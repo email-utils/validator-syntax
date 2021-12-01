@@ -311,6 +311,11 @@ class EmailSyntaxValidator {
   }
 
   public async validate(email: string): Promise<boolean> {
+    if (!email) {
+      console.error('No email provided.', email)
+      return false
+    }
+
     this.email = email
     // Need to add support for special local chars that are properly quoted.
     // Need to add support for quotes in ().
