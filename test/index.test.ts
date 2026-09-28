@@ -1,5 +1,6 @@
-// The 0.0.1 suite, ported as-is. The commented-out cases are scenarios 0.0.1
-// never supported; they move into the corpus fixtures (validator-syntax#6).
+// The 0.0.1 suite, ported as-is. It covers the 0.0.1 option tree until the
+// rewrite removes it (validator-syntax#10). Its addresses, commented-out ones
+// included, live on in test/corpus/legacy.ts with their v1 expectations.
 /* oxlint-disable vitest/no-commented-out-tests */
 import { describe, expect, it } from 'vitest';
 import EmailSyntaxValidator from '../src';
