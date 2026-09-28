@@ -2,48 +2,128 @@
 // they exist (validator-syntax#10); until then these keep the table honest.
 import { describe, expect, it } from 'vitest';
 import EmailSyntaxValidator from '../src';
-import { legacyCorpus } from './corpus/legacy';
-import { presets } from './corpus/types';
+import {
+  isemailFixtures,
+  legacyFixtures,
+  presets,
+  rfc3696Fixtures,
+  supportMatrix,
+  syntaxFeatures,
+  syntaxFixtures,
+  wikipediaFixtures,
+} from '../src/fixtures';
 
 // The WHATWG input[type=email] pattern, verbatim from the HTML standard.
 const whatwgEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
-describe('legacy corpus', () => {
-  it('lists each address once', () => {
-    const addresses = legacyCorpus.map((corpusCase) => corpusCase.address);
-    expect(new Set(addresses).size).toBe(addresses.length);
+/** The character each positioned reason code must point at, where there's one. */
+const pointsAt: Partial<Record<string, string>> = {
+  'syntax.comment.not_allowed': '(',
+  'syntax.comment.unterminated': '(',
+  'syntax.domain.literal_invalid': '[',
+  'syntax.local.unquoted_space': ' ',
+};
+
+describe('corpus', () => {
+  it('combines every source', () => {
+    expect(syntaxFixtures).toEqual([
+      ...legacyFixtures,
+      ...isemailFixtures,
+      ...wikipediaFixtures,
+      ...rfc3696Fixtures,
+    ]);
   });
 
-  describe.each(legacyCorpus)('$address', (corpusCase) => {
-    it('records what 0.0.1 returned', async () => {
-      expect(
-        await new EmailSyntaxValidator().validate(corpusCase.address),
-      ).toBe(corpusCase.legacy);
+  it('lists each address once', () => {
+    const addresses = syntaxFixtures.map((fixture) => fixture.address);
+    const repeated = addresses.filter(
+      (address, i) => addresses.indexOf(address) !== i,
+    );
+    expect(repeated).toEqual([]);
+  });
+
+  it('lists each isemail test once', () => {
+    const ids = isemailFixtures.map((fixture) => fixture.isemail);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('has fixtures for every support-matrix feature', () => {
+    const tagged = new Set(syntaxFixtures.map((fixture) => fixture.feature));
+    const missing = syntaxFeatures
+      .map(({ feature }) => feature)
+      .filter((feature) => !tagged.has(feature));
+    expect(missing).toEqual([]);
+  });
+
+  it('builds the support matrix', () => {
+    const rows = supportMatrix().map(
+      ({ label, support }) =>
+        `| ${label} | ${presets.map((preset) => support[preset]).join(' | ')} |`,
+    );
+    expect(
+      [
+        `| Feature | ${presets.join(' | ')} |`,
+        `| --- |${' --- |'.repeat(presets.length)}`,
+        ...rows,
+      ].join('\n'),
+    ).toMatchSnapshot();
+  });
+
+  describe.each(syntaxFixtures)('$address', ({ address, expected }) => {
+    const accepting = presets.filter((preset) => expected[preset].ok);
+    const failures = presets.flatMap((preset) => {
+      const result = expected[preset];
+      return result.ok || result.index === undefined
+        ? []
+        : [{ preset, reason: result.reason, index: result.index }];
     });
 
-    it('explains the flip exactly when practical disagrees with 0.0.1', () => {
-      const flipped = corpusCase.expected.practical.ok !== corpusCase.legacy;
-      expect(corpusCase.flipped !== undefined).toBe(flipped);
-    });
-
-    it('matches the WHATWG pattern under html5', () => {
-      expect(corpusCase.expected.html5.ok).toBe(
-        whatwgEmail.test(corpusCase.address),
+    it('matches the WHATWG pattern and the 254 cap under html5', () => {
+      expect(expected.html5.ok).toBe(
+        whatwgEmail.test(address) && address.length <= 254,
       );
     });
 
-    it('points failure indexes inside the address', () => {
-      const indexes = presets.flatMap((preset) => {
-        const expected = corpusCase.expected[preset];
-        return expected.ok || expected.index === undefined
-          ? []
-          : [expected.index];
+    it('keeps accepted addresses within the length caps', () => {
+      // rfc5322 is left out: its caps don't count comments or whitespace.
+      const local = address.slice(0, address.lastIndexOf('@'));
+      const overLong = accepting.filter(
+        (preset) =>
+          (preset !== 'rfc5322' && address.length > 254) ||
+          ((preset === 'practical' || preset === 'rfc5321') &&
+            local.length > 64),
+      );
+      expect(overLong).toEqual([]);
+    });
+
+    it('points failure indexes at the right character', () => {
+      const misplaced = failures.filter(({ reason, index }) => {
+        const char = pointsAt[reason];
+        return (
+          index < 0 ||
+          index >= address.length ||
+          (reason.startsWith('syntax.local.') &&
+            index >= address.lastIndexOf('@')) ||
+          (reason.startsWith('syntax.domain.') &&
+            index <= address.indexOf('@')) ||
+          (char !== undefined && address[index] !== char)
+        );
       });
-      const outside = indexes.filter(
-        (index) => index < 0 || index >= corpusCase.address.length,
-      );
-      expect(outside).toEqual([]);
+      expect(misplaced).toEqual([]);
     });
+  });
+});
+
+describe.each(legacyFixtures)('legacy $address', (fixture) => {
+  it('records what 0.0.1 returned', async () => {
+    expect(await new EmailSyntaxValidator().validate(fixture.address)).toBe(
+      fixture.legacy,
+    );
+  });
+
+  it('explains the flip exactly when practical disagrees with 0.0.1', () => {
+    const flipped = fixture.expected.practical.ok !== fixture.legacy;
+    expect(fixture.flipped !== undefined).toBe(flipped);
   });
 });
