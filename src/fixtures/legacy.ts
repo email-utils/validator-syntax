@@ -5,22 +5,8 @@
 // returned with its default config, and `flipped` explains every case where
 // the default preset now disagrees.
 //
-// Preset rules applied:
-// - practical: dot-atom local part (letters, digits, and
-//   #$&'*+/=?^_`{|}~- with single inner dots), no quoted strings, and no `%`
-//   or `!` routes; hostname labels with at least one dot; TLD in the IANA
-//   set.
-// - rfc5321: RFC 5321 Dot-string or Quoted-string local part, 64-char local
-//   cap; hostname labels with at least one dot.
-// - rfc5322: RFC 5322 local part, including obs-local-part (dot-separated
-//   atoms and quoted strings mixed); only RFC 5322's own limits apply, so no
-//   64-char local cap.
-// - html5: exactly the WHATWG input[type=email] regex.
-//
-// Every preset splits on the last `@` outside a quoted string
-// (validator-syntax#9). Where a failure has a position, `index` points at the
-// first offending character in the whole address.
-import { type CorpusCase, everywhere, fail, valid } from './types';
+// The preset rules behind the expectations are in ./index.ts.
+import { type LegacyFixture, everywhere, fail, valid } from './types';
 
 const quotedLocalRejected =
   'practical rejects quoted local parts, which are legal but never seen on real mailboxes';
@@ -29,82 +15,93 @@ const routeRejected =
   'practical rejects `%` and `!`, the source-route and bang-path characters, which are legal but never seen on real mailboxes';
 
 /** The 0.0.1 suite reran these cases uppercased, under `local.alphaLower: false`. */
-function withUppercase(corpusCase: CorpusCase): CorpusCase[] {
+function withUppercase(fixture: LegacyFixture): LegacyFixture[] {
   return [
-    corpusCase,
+    fixture,
     {
-      ...corpusCase,
-      address: corpusCase.address.toUpperCase(),
-      description: `${corpusCase.description}, uppercased`,
+      ...fixture,
+      address: fixture.address.toUpperCase(),
+      description: `${fixture.description}, uppercased`,
     },
   ];
 }
 
-export const legacyCorpus: CorpusCase[] = [
+export const legacyFixtures: readonly LegacyFixture[] = [
   // Plain dot-atom addresses.
   ...withUppercase({
     address: 'simple@example.com',
     description: 'Simple address',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'x@example.com',
     description: 'Single-letter local part',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'admin@test.co',
     description: 'Two-letter TLD',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'test@gmail.com',
     description: 'Gmail address',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'tesT@example.com',
     description: 'Uppercase letter in the local part',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'test1@example.com',
     description: 'Digit in the local part',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   {
     address: 'simple1@example.com',
     description: 'Digit at the end of the local part',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   },
   ...withUppercase({
     address: 'very.common@example.com',
     description: 'Dot in the local part',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   {
     address: 'disposable.style.email.with+symbol@example.com',
     description: 'Dots and a plus sign in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   },
   {
     address: 'other.email-with-hyphen@example.com',
     description: 'Dots and hyphens in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   },
   {
     address: 'user.name+tag+sorting@example.com',
     description: 'Dot and plus-sign tags in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   },
@@ -113,18 +110,21 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'disposablestyleemailwith+symbol@example.com',
     description: 'Plus sign in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'username+tag+sorting@example.com',
     description: 'Plus-sign tags in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'test/test@test.com',
     description: 'Slash in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
@@ -133,6 +133,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'mailhost.com!username@example.org',
     description: 'Bang path in the local part, dotted relay host',
+    feature: 'route-chars',
     expected: {
       ...everywhere(valid),
       practical: fail('syntax.local.invalid_char', 12),
@@ -145,6 +146,7 @@ export const legacyCorpus: CorpusCase[] = [
     // practical rejects the `!` itself, like the dotted case above.
     address: 'mailhost!username@example.org',
     description: 'Bang path in the local part, dotless relay host',
+    feature: 'route-chars',
     expected: {
       ...everywhere(valid),
       practical: fail('syntax.local.invalid_char', 8),
@@ -154,6 +156,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'user%example.com@example.org',
     description: 'Percent route in the local part, dotted relay host',
+    feature: 'route-chars',
     expected: {
       ...everywhere(valid),
       practical: fail('syntax.local.invalid_char', 4),
@@ -166,6 +169,7 @@ export const legacyCorpus: CorpusCase[] = [
     // practical rejects the `%` itself, like the dotted case above.
     address: 'user%example@example.org',
     description: 'Percent route in the local part, dotless relay host',
+    feature: 'route-chars',
     expected: {
       ...everywhere(valid),
       practical: fail('syntax.local.invalid_char', 4),
@@ -177,30 +181,35 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'fully-qualified-domain@example.com',
     description: 'Hyphens in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'otheremail-with-hyphen@example.com',
     description: 'Hyphens in the local part',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'user-@example.org',
     description: 'Local part ending in a hyphen',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'exampleindeed@strange-example.com',
     description: 'Hyphenated domain',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: true,
   }),
   ...withUppercase({
     address: 'example-indeed@strange-example.com',
     description: 'Hyphens in the local part and the domain',
+    feature: 'atext-specials',
     expected: everywhere(valid),
     legacy: true,
   }),
@@ -209,6 +218,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: '" "@example.org',
     description: 'Quoted space as the whole local part',
+    feature: 'quoted-local',
     expected: {
       practical: fail('syntax.local.invalid_char', 0),
       rfc5321: valid,
@@ -221,6 +231,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: '"john..doe"@example.com',
     description: 'Consecutive dots inside a quoted local part',
+    feature: 'quoted-local',
     expected: {
       practical: fail('syntax.local.invalid_char', 0),
       rfc5321: valid,
@@ -233,6 +244,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: '"justactually"@example.com',
     description: 'Quoted local part',
+    feature: 'quoted-local',
     expected: {
       practical: fail('syntax.local.invalid_char', 0),
       rfc5321: valid,
@@ -245,6 +257,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'just."actually".right@example.com',
     description: 'Quoted string between dot-separated atoms',
+    feature: 'obs-local',
     expected: {
       // RFC 5321 allows a Dot-string or a Quoted-string, never both.
       practical: fail('syntax.local.invalid_char', 5),
@@ -258,6 +271,7 @@ export const legacyCorpus: CorpusCase[] = [
   {
     address: 'just."not".right@example.com',
     description: 'Quoted string between dot-separated atoms',
+    feature: 'obs-local',
     expected: {
       practical: fail('syntax.local.invalid_char', 5),
       rfc5321: fail('syntax.local.invalid_char', 5),
@@ -269,8 +283,8 @@ export const legacyCorpus: CorpusCase[] = [
   },
   {
     // The Wikipedia example with its escapes lost in the 0.0.1 suite, so it
-    // isn't the valid address it was meant to be. validator-syntax#7 adds the
-    // original.
+    // isn't the valid address it was meant to be. The original is in
+    // wikipedia.ts.
     address:
       '"very.(),:;<>[]".VERY."very@\\ "very".unusual"@strange.example.com',
     description: 'Quoted strings with specials, missing their escapes',
@@ -372,6 +386,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'john..doe@example.com',
     description: 'Consecutive dots in the local part',
+    feature: 'misplaced-dots',
     expected: {
       practical: fail('syntax.local.consecutive_dots', 5),
       rfc5321: fail('syntax.local.consecutive_dots', 5),
@@ -438,6 +453,7 @@ export const legacyCorpus: CorpusCase[] = [
     address:
       '1234567890123456789012345678901234567890123456789012345678901234+x@example.com',
     description: 'Local part over 64 characters',
+    feature: 'long-local',
     expected: {
       practical: fail('syntax.local.too_long'),
       rfc5321: fail('syntax.local.too_long'),
@@ -450,6 +466,7 @@ export const legacyCorpus: CorpusCase[] = [
     address:
       'uayuYfBgRktoqVPCAJLhkcyVHFsZygReesttpNWTTiETtbQFfDUMZjyCdeaEhcotf+x@example.com',
     description: 'Local part over 64 characters, letters only',
+    feature: 'long-local',
     expected: {
       practical: fail('syntax.local.too_long'),
       rfc5321: fail('syntax.local.too_long'),
@@ -463,6 +480,7 @@ export const legacyCorpus: CorpusCase[] = [
   ...withUppercase({
     address: 'james@google',
     description: 'Domain with no dot',
+    feature: 'dotless-domain',
     expected: {
       practical: fail('syntax.domain.no_dot'),
       rfc5321: fail('syntax.domain.no_dot'),
@@ -474,6 +492,7 @@ export const legacyCorpus: CorpusCase[] = [
   {
     address: 'admin@mailserver1',
     description: 'Domain with no dot, ending in a digit',
+    feature: 'dotless-domain',
     expected: {
       practical: fail('syntax.domain.no_dot'),
       rfc5321: fail('syntax.domain.no_dot'),
@@ -485,6 +504,7 @@ export const legacyCorpus: CorpusCase[] = [
   {
     address: 'james@g.com',
     description: 'Single-character domain label',
+    feature: 'dot-atom',
     expected: everywhere(valid),
     legacy: false,
     flipped:
@@ -493,6 +513,7 @@ export const legacyCorpus: CorpusCase[] = [
   {
     address: 'james@google.c',
     description: 'Single-character TLD',
+    feature: 'unknown-tld',
     expected: {
       practical: fail('syntax.tld.unknown'),
       rfc5321: valid,
@@ -504,6 +525,7 @@ export const legacyCorpus: CorpusCase[] = [
   {
     address: 'test@example.thisisnotavalidtld',
     description: 'TLD outside the IANA set',
+    feature: 'unknown-tld',
     expected: {
       practical: fail('syntax.tld.unknown'),
       rfc5321: valid,

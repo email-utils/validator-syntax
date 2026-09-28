@@ -1,0 +1,22 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`corpus > builds the support matrix 1`] = `
+"| Feature | practical | rfc5321 | rfc5322 | html5 |
+| --- | --- | --- | --- | --- |
+| Letters, digits, and single dots | yes | yes | yes | yes |
+| Printable specials like \`+\`, \`/\`, \`=\`, and \`_\` | yes | yes | yes | yes |
+| Route characters (\`%\`, \`!\`) | no | yes | yes | yes |
+| Leading, trailing, or consecutive dots | no | no | no | yes |
+| Local part over 64 characters | no | no | yes | yes |
+| Quoted local part | no | yes | yes | no |
+| Backslash escapes in a quoted string | no | yes | yes | no |
+| Dot-separated atoms and quoted strings mixed | no | no | yes | no |
+| Comments | no | no | yes | no |
+| Whitespace and line folding between tokens | no | no | yes | no |
+| Control characters (obsolete syntax) | no | no | yes | no |
+| IPv4 address literal | no | yes | yes | no |
+| IPv6 address literal | no | yes | yes | no |
+| Other domain literals | no | no | yes | no |
+| Domain with no dot | no | no | no | yes |
+| TLD outside the IANA set | no | yes | yes | yes |"
+`;

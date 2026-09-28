@@ -1,7 +1,8 @@
 import { defineConfig, type UserConfig } from 'tsdown';
 
 const config: UserConfig = defineConfig({
-  entry: ['src/index.ts'],
+  // `fixtures` is the corpus, for dependents' consistency tests and the docs.
+  entry: { index: 'src/index.ts', fixtures: 'src/fixtures/index.ts' },
   format: ['esm', 'cjs'],
   // Browsers, Deno, Bun and edge runtimes run this package too, so nothing
   // may assume Node.
