@@ -1,6 +1,7 @@
 // The shape of a fixture. Each one carries its expected result under every
 // preset, so one table drives the tests, the benches, dependents'
 // consistency tests, and the docs' support matrix.
+import type { ReasonCode } from '../result';
 
 export type Preset = 'practical' | 'rfc5321' | 'rfc5322' | 'html5';
 
@@ -12,24 +13,7 @@ export const presets: readonly Preset[] = [
 ];
 
 /** The `syntax.*` codes from the reason-code catalogue (meta docs/api/reason-codes.md). */
-export type SyntaxReasonCode =
-  | 'syntax.address.empty'
-  | 'syntax.address.no_at'
-  | 'syntax.address.too_long'
-  | 'syntax.local.empty'
-  | 'syntax.local.too_long'
-  | 'syntax.local.invalid_char'
-  | 'syntax.local.consecutive_dots'
-  | 'syntax.local.unquoted_space'
-  | 'syntax.domain.empty'
-  | 'syntax.domain.no_dot'
-  | 'syntax.domain.label_invalid'
-  | 'syntax.domain.literal_invalid'
-  | 'syntax.domain.too_long'
-  | 'syntax.domain.invalid_char'
-  | 'syntax.comment.not_allowed'
-  | 'syntax.comment.unterminated'
-  | 'syntax.tld.unknown';
+export type SyntaxReasonCode = ReasonCode;
 
 export type Expected =
   { ok: true } | { ok: false; reason: SyntaxReasonCode; index?: number };
