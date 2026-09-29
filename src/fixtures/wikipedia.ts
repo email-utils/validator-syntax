@@ -2,7 +2,14 @@
 // 1374714890 (2026-09-13):
 // https://en.wikipedia.org/w/index.php?title=Email_address&oldid=1374714890#Examples
 // Those already in legacy.ts, word for word, are left out.
-import { type SyntaxFixture, everywhere, fail, rfcOnly, valid } from './types';
+import {
+  type SyntaxFixture,
+  allBut5322,
+  everywhere,
+  fail,
+  rfcOnly,
+  valid,
+} from './types';
 
 export const wikipediaFixtures: readonly SyntaxFixture[] = [
   // Listed as valid.
@@ -99,6 +106,10 @@ export const wikipediaFixtures: readonly SyntaxFixture[] = [
   {
     address: 'i.like.underscores@but_they_are_not_allowed_in_this_part',
     description: 'Underscores in a dotless domain',
-    expected: everywhere(fail('syntax.domain.invalid_char', 22)),
+    // `_` is atext under rfc5322, which still requires a dot.
+    expected: allBut5322(
+      fail('syntax.domain.invalid_char', 22),
+      fail('syntax.domain.no_dot'),
+    ),
   },
 ];

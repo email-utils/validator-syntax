@@ -1,138 +1,71 @@
+// What parseAddress returns beyond the corpus, which records only whether
+// each address passes and why not: the parsed value, and the rules the
+// corpus has no fixture for. corpus.test.ts runs the corpus itself.
 import { describe, expect, it } from 'vitest';
-import { type Expected, presets, syntaxFixtures } from '../src/fixtures';
-import { grammars, splitAddress } from '../src/parse';
+import { parseAddress } from '../src';
 
-// The codes the split decides on its own. Every other code comes from the
-// presets' rules, which run after it (validator-syntax#10, #11, #12).
-const structural = new Set<string>([
-  'syntax.address.empty',
-  'syntax.address.no_at',
-  'syntax.local.empty',
-  'syntax.domain.empty',
-  'syntax.comment.not_allowed',
-  'syntax.comment.unterminated',
-]);
+const rfc5321 = { preset: 'rfc5321' } as const;
+const rfc5322 = { preset: 'rfc5322' } as const;
+const html5 = { preset: 'html5' } as const;
 
-const rfc5322 = grammars.rfc5322;
-const practical = grammars.practical;
-
-const cases = syntaxFixtures.flatMap(({ address, expected }) =>
-  presets.map((preset) => ({ address, preset, want: expected[preset] })),
-);
-
-/** The result without its message, which isn't part of the contract. */
-function outcome(result: ReturnType<typeof splitAddress>): Expected {
-  if (result.ok) {
-    return { ok: true };
-  }
-  const { reason, index } = result;
-  return index === undefined
-    ? { ok: false, reason }
-    : { ok: false, reason, index };
-}
-
-describe('corpus', () => {
-  it.each(cases.filter(({ want }) => want.ok))(
-    'splits $address under $preset',
-    ({ address, preset }) => {
-      expect(splitAddress(address, grammars[preset]).ok).toBe(true);
-    },
-  );
-
-  it.each(cases.filter(({ want }) => !want.ok && structural.has(want.reason)))(
-    'fails $address under $preset',
-    ({ address, preset, want }) => {
-      expect(outcome(splitAddress(address, grammars[preset]))).toEqual(want);
-    },
-  );
-
-  // A later rule fails these first, so the split mustn't give up on the
-  // address as a whole.
-  it.each(cases.filter(({ want }) => !want.ok && !structural.has(want.reason)))(
-    'finds an @ in $address under $preset',
-    ({ address, preset }) => {
-      const result = splitAddress(address, grammars[preset]);
-      expect(result.ok || !result.reason.startsWith('syntax.address.')).toBe(
-        true,
-      );
-    },
-  );
-});
-
-describe('splitAddress', () => {
+describe('parseAddress', () => {
   it('throws TypeError on non-string input', () => {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    expect(() => splitAddress(1 as unknown as string, practical)).toThrow(
-      TypeError,
-    );
+    expect(() => parseAddress(1 as unknown as string)).toThrow(TypeError);
   });
 
-  it('splits on the last @, not the first', () => {
-    expect(splitAddress('"a@b"@example.com', practical)).toEqual({
+  it('returns the parts, with the TLD as written', () => {
+    expect(parseAddress('Ada.Lovelace@Example.CO.UK')).toEqual({
       ok: true,
       value: {
-        local: '"a@b"',
-        domain: 'example.com',
-        tld: 'com',
+        local: 'Ada.Lovelace',
+        domain: 'Example.CO.UK',
+        tld: 'UK',
         comments: [],
       },
     });
   });
 
-  it('ignores an @ inside a quoted string', () => {
-    expect(splitAddress('"john@doe"@x.com', rfc5322)).toMatchObject({
-      ok: true,
-      value: { local: '"john@doe"', domain: 'x.com' },
-    });
-    expect(splitAddress('"a@b', rfc5322)).toEqual({
+  it('gives a message with every failure', () => {
+    expect(parseAddress('ada@example..com')).toEqual({
       ok: false,
-      reason: 'syntax.address.no_at',
+      reason: 'syntax.domain.label_invalid',
+      message: expect.any(String),
+      index: 12,
     });
   });
 
-  it('treats an escaped quote as part of the quoted string', () => {
-    expect(splitAddress('"a\\"@b"@x.com', rfc5322)).toMatchObject({
+  it('splits on the last @, not the first', () => {
+    expect(parseAddress('"a@b"@example.com', rfc5321)).toMatchObject({
       ok: true,
-      value: { local: '"a\\"@b"', domain: 'x.com' },
+      value: { local: '"a@b"', domain: 'example.com' },
     });
   });
 
-  it('opens a quoted string only at the start of a word', () => {
-    expect(splitAddress('a"b@x.com', rfc5322)).toMatchObject({
-      ok: true,
-      value: { local: 'a"b', domain: 'x.com' },
-    });
-    expect(splitAddress('a."b@c".d@x.com', rfc5322)).toMatchObject({
-      ok: true,
-      value: { local: 'a."b@c".d', domain: 'x.com' },
+  it('keeps a quoted local part with its quotes and escapes', () => {
+    expect(parseAddress('"a\\"b c"@x.com', rfc5321)).toMatchObject({
+      value: { local: '"a\\"b c"' },
     });
   });
 
-  it('ignores an @ inside a domain literal', () => {
-    expect(splitAddress('a@[b@c]', rfc5322)).toEqual({
+  it('gives no TLD for a literal or a dotless domain', () => {
+    expect(parseAddress('a@[192.0.2.1]', rfc5321)).toEqual({
       ok: true,
-      value: { local: 'a', domain: '[b@c]', comments: [] },
+      value: { local: 'a', domain: '[192.0.2.1]', comments: [] },
     });
-    expect(splitAddress('a@[b@c]', practical)).toMatchObject({
+    expect(parseAddress('a@localhost', html5)).toEqual({
       ok: true,
-      value: { local: 'a@[b', domain: 'c]' },
+      value: { local: 'a', domain: 'localhost', comments: [] },
     });
-  });
-
-  it('gives no TLD for a literal, a dotless domain, or a trailing dot', () => {
-    for (const address of ['a@[192.0.2.1]', 'a@localhost', 'a@example.']) {
-      const result = splitAddress(address, rfc5322);
-      expect(result.ok && 'tld' in result.value).toBe(false);
-    }
   });
 
   it('lifts comments out, with where each one sat', () => {
-    expect(splitAddress('(a)x.(b)y(c)@(d)ex.(e)com (f)', rfc5322)).toEqual({
+    expect(parseAddress('(a)x.(b)y(c)@(d)ex.(e)com (f)', rfc5322)).toEqual({
       ok: true,
       value: {
         local: 'x.y',
-        domain: 'ex.com ',
-        tld: 'com ',
+        domain: 'ex.com',
+        tld: 'com',
         comments: [
           { text: 'a', position: 'before-local' },
           { text: 'b', position: 'inside-local' },
@@ -146,38 +79,190 @@ describe('splitAddress', () => {
   });
 
   it('keeps nested comments and escapes whole', () => {
-    expect(splitAddress('(a(b)\\))x@y.z', rfc5322)).toMatchObject({
+    expect(parseAddress('(a(b)\\))x@y.com', rfc5322)).toMatchObject({
+      value: { local: 'x', comments: [{ text: 'a(b)\\)' }] },
+    });
+  });
+
+  it('drops folding whitespace, and unfolds it inside quotes and literals', () => {
+    expect(
+      parseAddress(' a .\r\n "b\r\n c" @ [x\r\n y] ', rfc5322),
+    ).toMatchObject({
       ok: true,
-      value: {
-        local: 'x',
-        comments: [{ text: 'a(b)\\)', position: 'before-local' }],
-      },
+      value: { local: 'a."b c"', domain: '[x y]' },
     });
   });
 
   it('fails an empty part once its comments are cut', () => {
-    expect(splitAddress('(a)@x.com', rfc5322)).toEqual({
-      ok: false,
+    expect(parseAddress('(a)@x.com', rfc5322)).toMatchObject({
       reason: 'syntax.local.empty',
     });
-    expect(splitAddress('a@(b)', rfc5322)).toEqual({
-      ok: false,
+    expect(parseAddress('a@(b)', rfc5322)).toMatchObject({
       reason: 'syntax.domain.empty',
     });
   });
 
-  it('checks the local part before the domain', () => {
-    expect(splitAddress('a(b@(c', practical)).toMatchObject({
-      reason: 'syntax.comment.not_allowed',
+  it('checks the local part before a disallowed comment in the domain', () => {
+    expect(parseAddress('a"b@c(d')).toMatchObject({
+      reason: 'syntax.local.invalid_char',
       index: 1,
     });
-    expect(splitAddress('a@b(c', practical)).toMatchObject({
+    expect(parseAddress('a@b(c')).toMatchObject({
       reason: 'syntax.comment.not_allowed',
       index: 3,
     });
-    expect(splitAddress('a(b@', practical)).toMatchObject({
-      reason: 'syntax.comment.not_allowed',
-      index: 1,
+  });
+
+  describe('rfc5322', () => {
+    it('points an unquoted space between words at the space', () => {
+      expect(parseAddress('a "b"@x.com', rfc5322)).toMatchObject({
+        reason: 'syntax.local.unquoted_space',
+        index: 1,
+      });
     });
+
+    it('points whitespace between domain labels at the whitespace', () => {
+      expect(parseAddress('a@b c.com', rfc5322)).toMatchObject({
+        reason: 'syntax.domain.invalid_char',
+        index: 3,
+      });
+    });
+
+    it('allows only whitespace and comments after a domain literal', () => {
+      expect(parseAddress('a@[x].com', rfc5322)).toMatchObject({
+        reason: 'syntax.domain.invalid_char',
+        index: 5,
+      });
+    });
+
+    it('fails a bad character inside a domain comment', () => {
+      expect(parseAddress('a@x.com(\0)', rfc5322)).toMatchObject({
+        reason: 'syntax.domain.invalid_char',
+        index: 8,
+      });
+      expect(parseAddress('a@x.com(\\é)', rfc5322)).toMatchObject({
+        reason: 'syntax.domain.invalid_char',
+        index: 9,
+      });
+    });
+
+    it('fails a literal with a bad character, escape, or fold', () => {
+      for (const literal of ['[a\0]', '[a\\é]', '[a\r\nb]', '[a\\']) {
+        expect(parseAddress(`a@${literal}`, rfc5322)).toMatchObject({
+          reason: 'syntax.domain.literal_invalid',
+          index: 2,
+        });
+      }
+    });
+
+    it('fails a quoted string with a fold that nothing follows', () => {
+      expect(parseAddress('"a\r\nb"@x.com', rfc5322)).toMatchObject({
+        reason: 'syntax.local.invalid_char',
+        index: 2,
+      });
+    });
+  });
+
+  describe('hostname labels', () => {
+    it('accepts a 63-character label and fails a 64-character one', () => {
+      const label = 'a'.repeat(63);
+      expect(parseAddress(`a@${label}.com`).ok).toBe(true);
+      expect(parseAddress(`a@${label}b.com`)).toMatchObject({
+        reason: 'syntax.domain.label_invalid',
+        index: 2,
+      });
+    });
+
+    it('fails a dot after a literal', () => {
+      expect(parseAddress('a@[192.0.2.1].com', rfc5321)).toMatchObject({
+        reason: 'syntax.domain.invalid_char',
+        index: 13,
+      });
+    });
+
+    it('fails an unclosed address literal', () => {
+      expect(parseAddress('a@[192.0.2.1', rfc5321)).toMatchObject({
+        reason: 'syntax.domain.literal_invalid',
+        index: 2,
+      });
+    });
+  });
+});
+
+describe('options', () => {
+  it('turns the TLD check off', () => {
+    expect(parseAddress('a@example.invalidtld').ok).toBe(false);
+    expect(parseAddress('a@example.invalidtld', { checkTld: false }).ok).toBe(
+      true,
+    );
+    expect(
+      parseAddress('a@example.invalidtld', {
+        preset: 'rfc5321',
+        checkTld: true,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('allows a dotless domain, which then has no TLD to check', () => {
+    expect(parseAddress('a@localhost', { allowNoTld: true })).toMatchObject({
+      ok: true,
+      value: { domain: 'localhost' },
+    });
+    expect(
+      parseAddress('a@localhost', { ...html5, allowNoTld: false }),
+    ).toMatchObject({ reason: 'syntax.domain.no_dot' });
+  });
+
+  it('allows comments in practical only at the ends of each part', () => {
+    const options = { allowComments: true };
+    expect(parseAddress('(a)x.y(b)@(c)ex.com(d)', options)).toMatchObject({
+      ok: true,
+      value: { local: 'x.y', domain: 'ex.com' },
+    });
+    for (const [address, index] of [
+      ['x.(a)y@ex.com', 2],
+      ['x(a).y@ex.com', 1],
+      ['x(a)y@ex.com', 1],
+      ['x@ex.(a)com', 5],
+      ['x@ex(a).com', 4],
+      ['x@ex(a)com', 4],
+    ] as const) {
+      expect(parseAddress(address, options)).toMatchObject({
+        reason: 'syntax.comment.not_allowed',
+        index,
+      });
+    }
+  });
+
+  it('turns comments off in rfc5322, keeping folding whitespace', () => {
+    const options = { ...rfc5322, allowComments: false };
+    expect(parseAddress('a (b)@x.com', options)).toMatchObject({
+      reason: 'syntax.comment.not_allowed',
+      index: 2,
+    });
+    expect(parseAddress(' a @x.com', options).ok).toBe(true);
+  });
+
+  it('treats an undefined override as unset', () => {
+    expect(parseAddress('a@x.com', { checkTld: undefined }).ok).toBe(true);
+  });
+
+  it.each([
+    ['a non-object', 'practical'],
+    ['null', null],
+    ['an unknown option', { local: { quote: true } }],
+    ['an unknown preset', { preset: 'rfc822' }],
+    ['a non-boolean override', { checkTld: 'yes' }],
+    ['comments under rfc5321', { preset: 'rfc5321', allowComments: true }],
+    ['comments under html5', { preset: 'html5', allowComments: true }],
+  ])('throws TypeError on %s', (_, options) => {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    expect(() => parseAddress('a@x.com', options as never)).toThrow(TypeError);
+  });
+
+  it('accepts allowComments: false under any preset', () => {
+    expect(
+      parseAddress('a@x.com', { preset: 'html5', allowComments: false }).ok,
+    ).toBe(true);
   });
 });

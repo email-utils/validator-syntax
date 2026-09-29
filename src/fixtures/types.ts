@@ -126,6 +126,14 @@ export function rfcOnly(rejected: Expected): Record<Preset, Expected> {
   };
 }
 
+/** Fails the same way under every preset but rfc5322, which gives `rfc5322`. */
+export function allBut5322(
+  others: Expected,
+  rfc5322: Expected,
+): Record<Preset, Expected> {
+  return { ...everywhere(others), rfc5322 };
+}
+
 /** Valid only under `rfc5322`; every other preset gives `rejected`. */
 export function rfc5322Only(rejected: Expected): Record<Preset, Expected> {
   return { ...everywhere(rejected), rfc5322: valid };

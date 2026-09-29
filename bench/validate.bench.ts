@@ -1,11 +1,11 @@
 import { test } from 'vitest';
-import EmailSyntaxValidator from '../src';
+import { EmailSyntaxValidator } from '../test/legacy/validator';
 
-// Replaces 0.0.1's "1000 emails in under 20 ms" timing assertions. Targets and
-// the legacy comparison arrive with the performance work.
+// The 0.0.1 validator, as a baseline for parseAddress. Targets and the ratio
+// gates arrive with the performance work (validator-syntax#15).
 const validator = new EmailSyntaxValidator();
 
-test('validate', async ({ bench }) => {
+test('0.0.1 validate', async ({ bench }) => {
   await bench('valid address', async () => {
     await validator.validate('simple@example.com');
   }).run();

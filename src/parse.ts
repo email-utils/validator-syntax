@@ -1,50 +1,30 @@
-// The address parser's first stage: one pass that splits an address on its
-// last `@` outside a quoted string, comment, or domain literal, and lifts the
-// comments out. It checks structure only. The presets' character, length,
-// and TLD rules build on it (validator-syntax#10, #11, #12).
-import type { Result } from './result';
+// The address parser. One pass finds the last `@` outside a quoted string,
+// comment, or domain literal; then the local part and the domain are each
+// scanned left to right against the preset's rules, and the lengths, the
+// dot, and the TLD are checked last. The first failure wins, in the order
+// the corpus sets out (src/fixtures/index.ts).
+import { inClass, isWhitespace } from './chars';
+import { isAddressLiteral } from './ip';
+import type { Rules } from './options';
+import type { ReasonCode, Result } from './result';
+import { isKnownTld } from './tld';
 
-/** Which of RFC 5322's bracketing constructs a preset recognizes. */
-export interface Grammar {
-  /**
-   * A `"` at the start of a local-part word opens a quoted string, which
-   * hides any `@` inside it. Otherwise `"` is an ordinary character.
-   */
-  quotes: boolean;
-  /**
-   * `(` opens a comment, which nests, takes backslash escapes, and hides any
-   * `@` inside it. Otherwise the first `(` fails with
-   * `syntax.comment.not_allowed`.
-   */
-  comments: boolean;
-  /**
-   * A `[` at the start of the domain opens a domain literal, which hides any
-   * `@` inside it. Otherwise `[` is an ordinary character.
-   */
-  literals: boolean;
-}
-
-/** Each preset's grammar, for the presets to pick from (validator-syntax#10). */
-export const grammars: Readonly<
-  Record<'practical' | 'rfc5321' | 'rfc5322' | 'html5', Grammar>
-> = {
-  practical: { quotes: false, comments: false, literals: false },
-  rfc5321: { quotes: true, comments: false, literals: true },
-  rfc5322: { quotes: true, comments: true, literals: true },
-  html5: { quotes: false, comments: false, literals: false },
-};
-
+/** An address split into its parts, as {@link parseAddress} returns it. */
 export interface ParsedAddress {
-  /** The local part, without comments. */
+  /** The local part, without comments or folding whitespace. */
   local: string;
-  /** The domain, without comments. */
+  /** The domain, without comments or folding whitespace. */
   domain: string;
-  /** The last label; absent for a domain literal or a dotless domain. */
+  /**
+   * The last label; absent for a domain literal, or a dotless domain the
+   * preset allows.
+   */
   tld?: string;
-  /** Comments in input order; empty when there are none. */
+  /** Comments in input order; empty when there are none or they aren't allowed. */
   comments: AddressComment[];
 }
 
+/** A comment lifted out of an address. */
 export interface AddressComment {
   /** The comment's text, without the parentheses. */
   text: string;
@@ -63,52 +43,57 @@ export interface AddressComment {
     | 'after-domain';
 }
 
+type Failure = Extract<Result<never>, { ok: false }>;
+
+const messages: Readonly<Record<ReasonCode, string>> = {
+  'syntax.address.empty': 'The address is empty',
+  'syntax.address.no_at': 'The address has no @',
+  'syntax.address.too_long': 'The address is longer than 254 characters',
+  'syntax.local.empty': 'Nothing comes before the @',
+  'syntax.local.too_long': 'The local part is longer than 64 characters',
+  'syntax.local.invalid_char': 'The local part has a character it can’t hold',
+  'syntax.local.consecutive_dots': 'The local part has two dots in a row',
+  'syntax.local.unquoted_space': 'The local part has a space outside quotes',
+  'syntax.domain.empty': 'Nothing comes after the @',
+  'syntax.domain.no_dot': 'The domain has no dot',
+  'syntax.domain.label_invalid':
+    'A domain label is empty, too long, or starts or ends with a hyphen',
+  'syntax.domain.literal_invalid': 'The domain literal isn’t accepted',
+  'syntax.domain.too_long': 'The domain is longer than 253 characters',
+  'syntax.domain.invalid_char': 'The domain has a character it can’t hold',
+  'syntax.comment.not_allowed': 'Comments aren’t allowed here',
+  'syntax.comment.unterminated': 'A comment is missing its closing parenthesis',
+  'syntax.tld.unknown': 'The TLD isn’t in the IANA set',
+};
+
+function fail(reason: ReasonCode, index?: number): Failure {
+  const message = messages[reason];
+  return index === undefined
+    ? { ok: false, reason, message }
+    : { ok: false, reason, message, index };
+}
+
 const NORMAL = 0;
 const QUOTED = 1;
 const COMMENT = 2;
 const LITERAL = 3;
 
-/** Space, tab, CR, and LF: the characters folding whitespace is made of. */
-function isWhitespace(code: number): boolean {
-  return code === 32 || code === 9 || code === 13 || code === 10;
-}
-
 /**
- * Splits `email` into its local part and domain, lifting out the comments.
+ * Finds the `@` that splits `email`: the last one outside a quoted string,
+ * comment, or domain literal, or -1 when there's none.
  *
  * @remarks
- * The first failure wins, in this order: empty input; no `@` outside a
- * quoted string, comment, or literal; an empty local part; a disallowed
- * comment in the local part; an unterminated comment; a disallowed comment
- * in the domain; an empty domain. A quoted string or literal left open runs
- * to the end, taking any `@` with it; so does a comment, unless a split `@`
- * came before it, in which case it's `syntax.comment.unterminated`.
- *
- * @throws TypeError when `email` isn't a string.
+ * A quoted string opens only at the start of a word, and a literal only at
+ * the start of the domain; both, and comments, take backslash escapes. One
+ * left open runs to the end, taking any `@` with it.
  */
-export function splitAddress(
-  email: string,
-  grammar: Grammar,
-): Result<ParsedAddress> {
-  if (typeof email !== 'string') {
-    throw new TypeError(`Expected a string, got ${typeof email}`);
-  }
-  if (email === '') {
-    return { ok: false, reason: 'syntax.address.empty' };
-  }
-
+export function findAt(email: string, rules: Readonly<Rules>): number {
   let state = NORMAL;
-  // A quoted string opens only at the start of a word, and a literal only at
-  // the start of the domain. Whitespace and comments don't end either.
+  // Whitespace and comments don't end a word start or a domain start.
   let wordStart = true;
   let domainStart = false;
   let depth = 0;
-  let open = -1;
   let at = -1;
-  let paren = -1;
-  // Closed comments as [start, end), parentheses included.
-  const ranges: [number, number][] = [];
-
   for (let i = 0; i < email.length; i++) {
     const code = email.charCodeAt(i);
     if (state === NORMAL) {
@@ -116,18 +101,13 @@ export function splitAddress(
         at = i;
         wordStart = true;
         domainStart = true;
-      } else if (code === 40 /* ( */) {
-        if (grammar.comments) {
-          state = COMMENT;
-          depth = 1;
-          open = i;
-        } else if (paren < 0) {
-          paren = i;
-        }
+      } else if (code === 40 /* ( */ && rules.comments) {
+        state = COMMENT;
+        depth = 1;
       } else if (!isWhitespace(code)) {
-        if (code === 34 /* " */ && grammar.quotes && wordStart) {
+        if (code === 34 /* " */ && rules.quotes && wordStart) {
           state = QUOTED;
-        } else if (code === 91 /* [ */ && grammar.literals && domainStart) {
+        } else if (code === 91 /* [ */ && rules.literals && domainStart) {
           state = LITERAL;
         }
         wordStart = code === 46; /* . */
@@ -140,102 +120,476 @@ export function splitAddress(
         depth++;
       } else if (code === 41 /* ) */ && --depth === 0) {
         state = NORMAL;
-        ranges.push([open, i + 1]);
       }
     } else if (code === (state === QUOTED ? 34 : 93) /* " or ] */) {
       state = NORMAL;
     }
   }
+  return at;
+}
 
+/**
+ * Parses `email` under `rules`.
+ *
+ * @throws TypeError when `email` isn't a string.
+ */
+export function parse(
+  email: string,
+  rules: Readonly<Rules>,
+): Result<ParsedAddress> {
+  if (typeof email !== 'string') {
+    throw new TypeError(`Expected a string, got ${typeof email}`);
+  }
+  if (email === '') {
+    return fail('syntax.address.empty');
+  }
+  const at = findAt(email, rules);
   if (at < 0) {
-    return { ok: false, reason: 'syntax.address.no_at' };
+    return fail('syntax.address.no_at');
   }
-
   const comments: AddressComment[] = [];
-  const local = strip(email, 0, at, ranges, comments, 'local');
-  if (local === '') {
-    return { ok: false, reason: 'syntax.local.empty' };
+  const local = scanLocal(email, at, rules, comments);
+  if (typeof local !== 'string') {
+    return local;
   }
-  if (paren >= 0 && paren < at) {
-    return notAllowed(paren);
+  if (local.length > rules.localCap) {
+    return fail('syntax.local.too_long');
   }
-  if (state === COMMENT) {
-    return {
-      ok: false,
-      reason: 'syntax.comment.unterminated',
-      message: 'A comment is missing its closing parenthesis',
-      index: open,
-    };
+  const domain = scanDomain(email, at, rules, comments);
+  if ('reason' in domain) {
+    return domain;
   }
-  if (paren >= 0) {
-    return notAllowed(paren);
+  if (domain.domain.length > rules.domainCap) {
+    return fail('syntax.domain.too_long');
   }
-  const domain = strip(email, at + 1, email.length, ranges, comments, 'domain');
-  if (domain === '') {
-    return { ok: false, reason: 'syntax.domain.empty' };
+  if (local.length + 1 + domain.domain.length > 254) {
+    return fail('syntax.address.too_long');
   }
-
-  const dot = domain.lastIndexOf('.');
+  const { tld } = domain;
+  if (tld === undefined && !domain.literal && !rules.allowNoTld) {
+    return fail('syntax.domain.no_dot');
+  }
+  if (tld !== undefined && rules.checkTld && !isKnownTld(tld)) {
+    return fail('syntax.tld.unknown');
+  }
   return {
     ok: true,
     value:
-      domain.charCodeAt(0) === 91 || dot < 0 || dot === domain.length - 1
-        ? { local, domain, comments }
-        : { local, domain, tld: domain.slice(dot + 1), comments },
-  };
-}
-
-function notAllowed(index: number): Result<ParsedAddress> {
-  return {
-    ok: false,
-    reason: 'syntax.comment.not_allowed',
-    message: 'Comments are not allowed',
-    index,
+      tld === undefined
+        ? { local, domain: domain.domain, comments }
+        : { local, domain: domain.domain, tld, comments },
   };
 }
 
 /**
- * Returns `email` from `start` to `end` with the comments in `ranges` cut
- * out, and appends those comments to `comments`.
+ * Scans the local part, `email` up to `at`, and returns it without comments
+ * or folding whitespace.
  */
-function strip(
+function scanLocal(
   email: string,
-  start: number,
-  end: number,
-  ranges: readonly (readonly [number, number])[],
+  at: number,
+  rules: Readonly<Rules>,
   comments: AddressComment[],
-  part: 'local' | 'domain',
-): string {
-  const cut = ranges.filter(([open]) => open >= start && open < end);
-  if (cut.length === 0) {
-    return email.slice(start, end);
-  }
-  let text = '';
-  // The part's first and last characters that aren't whitespace or comment.
-  let first = -1;
-  let last = -1;
-  let from = start;
-  for (let r = 0; r <= cut.length; r++) {
-    const [to, next] = cut[r] ?? [end, end];
-    for (let i = from; i < to; i++) {
-      if (!isWhitespace(email.charCodeAt(i))) {
-        first = first < 0 ? i : first;
-        last = i;
+): string | Failure {
+  let local = '';
+  let words = 0;
+  // The last token was a word, so a dot or the end comes next.
+  let afterWord = false;
+  // An rfc5321 quoted string, which must be the whole local part.
+  let closed = false;
+  // The dot a word should follow next, or -1.
+  let dot = -1;
+  // The first whitespace since the last word, or -1.
+  let space = -1;
+  // A comment after a word where only the end may follow it, or -1.
+  let edge = -1;
+  // Comments from here on have no word after them.
+  let trailing = comments.length;
+
+  let i = 0;
+  while (i < at) {
+    const code = email.charCodeAt(i);
+    const quote = code === 34 && rules.quotes && (rules.obs || i === 0);
+    if (quote || inClass(code, rules.local)) {
+      if (edge >= 0) {
+        return fail('syntax.comment.not_allowed', edge);
       }
+      if (afterWord) {
+        return space >= 0
+          ? fail('syntax.local.unquoted_space', space)
+          : fail('syntax.local.invalid_char', i);
+      }
+      let next = i + 1;
+      if (quote) {
+        next = skipQuoted(email, i, at, rules.obs);
+        if (next < 0) {
+          return fail('syntax.local.invalid_char', -1 - next);
+        }
+        closed = !rules.obs;
+      } else {
+        while (next < at && inClass(email.charCodeAt(next), rules.local)) {
+          next++;
+        }
+      }
+      local += unfold(email.slice(i, next));
+      words++;
+      afterWord = true;
+      dot = -1;
+      space = -1;
+      trailing = comments.length;
+      i = next;
+    } else if (code === 46 /* . */) {
+      if (edge >= 0) {
+        return fail('syntax.comment.not_allowed', edge);
+      }
+      if (!afterWord || closed) {
+        return dot >= 0
+          ? fail('syntax.local.consecutive_dots', i)
+          : fail('syntax.local.invalid_char', i);
+      }
+      local += '.';
+      afterWord = false;
+      dot = i;
+      space = -1;
+      i++;
+    } else if (code === 40 /* ( */ && rules.comments) {
+      if (!rules.obs && words > 0) {
+        // Without the obsolete syntax, comments sit only at the ends.
+        if (!afterWord) {
+          return fail('syntax.comment.not_allowed', i);
+        }
+        edge = edge < 0 ? i : edge;
+      }
+      const next = skipComment(email, i, at);
+      if (next < 0) {
+        return fail('syntax.local.invalid_char', -1 - next);
+      }
+      comments.push({
+        text: email.slice(i + 1, next - 1),
+        position: words === 0 ? 'before-local' : 'inside-local',
+      });
+      i = next;
+    } else if (code === 40) {
+      return fail('syntax.comment.not_allowed', i);
+    } else if (rules.obs && isWhitespace(code)) {
+      const next = skipSpace(email, i, at);
+      if (next < 0) {
+        return fail('syntax.local.invalid_char', i);
+      }
+      space = space < 0 ? i : space;
+      i = next;
+    } else {
+      return code === 32
+        ? fail('syntax.local.unquoted_space', i)
+        : fail('syntax.local.invalid_char', i);
     }
-    text += email.slice(from, to);
-    from = next;
   }
-  for (const [open, close] of cut) {
-    comments.push({
-      text: email.slice(open + 1, close - 1),
-      position:
-        first < 0 || open < first
-          ? `before-${part}`
-          : open > last
-            ? `after-${part}`
-            : `inside-${part}`,
-    });
+
+  if (words === 0) {
+    return fail('syntax.local.empty');
   }
-  return text;
+  if (dot >= 0) {
+    return fail('syntax.local.invalid_char', dot);
+  }
+  settle(comments, trailing, 'after-local');
+  return local;
+}
+
+interface Domain {
+  domain: string;
+  tld?: string;
+  literal: boolean;
+}
+
+/**
+ * Scans the domain, `email` after `at`, and returns it without comments or
+ * folding whitespace.
+ */
+function scanDomain(
+  email: string,
+  at: number,
+  rules: Readonly<Rules>,
+  comments: AddressComment[],
+): Domain | Failure {
+  const end = email.length;
+  let domain = '';
+  let labels = 0;
+  let afterLabel = false;
+  let literal = false;
+  let dot = -1;
+  let space = -1;
+  let edge = -1;
+  let trailing = comments.length;
+  let tld = '';
+
+  let i = at + 1;
+  while (i < end) {
+    const code = email.charCodeAt(i);
+    const opensLiteral = code === 91 && rules.literals && labels === 0;
+    if (opensLiteral || inClass(code, rules.domain)) {
+      if (edge >= 0) {
+        return fail('syntax.comment.not_allowed', edge);
+      }
+      if (afterLabel) {
+        return fail('syntax.domain.invalid_char', space >= 0 ? space : i);
+      }
+      let next = i + 1;
+      if (opensLiteral) {
+        next = rules.obs
+          ? skipLiteral(email, i, end)
+          : skipAddressLiteral(email, i, end);
+        if (next < 0) {
+          return fail('syntax.domain.literal_invalid', i);
+        }
+        literal = true;
+      } else {
+        while (next < end && inClass(email.charCodeAt(next), rules.domain)) {
+          next++;
+        }
+        const bad = checkLabel(email, i, next);
+        if (bad >= 0) {
+          return fail('syntax.domain.label_invalid', bad);
+        }
+      }
+      tld = unfold(email.slice(i, next));
+      domain += tld;
+      labels++;
+      afterLabel = true;
+      dot = -1;
+      space = -1;
+      trailing = comments.length;
+      i = next;
+    } else if (code === 46 /* . */) {
+      if (edge >= 0) {
+        return fail('syntax.comment.not_allowed', edge);
+      }
+      if (!afterLabel || literal) {
+        return literal
+          ? fail('syntax.domain.invalid_char', i)
+          : fail('syntax.domain.label_invalid', i);
+      }
+      domain += '.';
+      afterLabel = false;
+      dot = i;
+      space = -1;
+      i++;
+    } else if (code === 40 /* ( */ && rules.comments) {
+      if (!rules.obs && labels > 0) {
+        if (!afterLabel) {
+          return fail('syntax.comment.not_allowed', i);
+        }
+        edge = edge < 0 ? i : edge;
+      }
+      const next = skipComment(email, i, end);
+      if (next < 0) {
+        return -1 - next === i
+          ? fail('syntax.comment.unterminated', i)
+          : fail('syntax.domain.invalid_char', -1 - next);
+      }
+      comments.push({
+        text: email.slice(i + 1, next - 1),
+        position: labels === 0 ? 'before-domain' : 'inside-domain',
+      });
+      i = next;
+    } else if (code === 40) {
+      return fail('syntax.comment.not_allowed', i);
+    } else if (rules.obs && isWhitespace(code)) {
+      const next = skipSpace(email, i, end);
+      if (next < 0) {
+        return fail('syntax.domain.invalid_char', i);
+      }
+      space = space < 0 ? i : space;
+      i = next;
+    } else {
+      return fail('syntax.domain.invalid_char', i);
+    }
+  }
+
+  if (labels === 0) {
+    return fail('syntax.domain.empty');
+  }
+  if (dot >= 0) {
+    return fail('syntax.domain.label_invalid', dot);
+  }
+  settle(comments, trailing, 'after-domain');
+  return literal || labels === 1
+    ? { domain, literal }
+    : { domain, tld, literal };
+}
+
+/**
+ * Checks the hostname label from `start` to `end`: returns the index of a
+ * leading or trailing hyphen, the start of a label over 63 characters, or -1.
+ */
+function checkLabel(email: string, start: number, end: number): number {
+  if (email.charCodeAt(start) === 45 /* - */) {
+    return start;
+  }
+  if (end - start > 63) {
+    return start;
+  }
+  return email.charCodeAt(end - 1) === 45 ? end - 1 : -1;
+}
+
+/** Marks the comments from `from` on, which no word follows, as trailing. */
+function settle(
+  comments: AddressComment[],
+  from: number,
+  position: 'after-local' | 'after-domain',
+): void {
+  for (let c = from; c < comments.length; c++) {
+    const comment = comments[c]!;
+    if (comment.position.startsWith('inside')) {
+      comment.position = position;
+    }
+  }
+}
+
+/** Removes the CRLFs of folding whitespace, keeping the space or tab after. */
+function unfold(text: string): string {
+  return text.includes('\r') ? text.replaceAll('\r\n', '') : text;
+}
+
+// The skip functions below return the index after what they scanned, or
+// `-1 - j` for the first character `j` that breaks it.
+
+/**
+ * Skips one character of folding whitespace: a space, a tab, or a CRLF with
+ * a space or tab after it. A lone CR or LF breaks it.
+ */
+function skipSpace(email: string, i: number, end: number): number {
+  const code = email.charCodeAt(i);
+  if (code === 32 || code === 9) {
+    return i + 1;
+  }
+  return code === 13 &&
+    i + 2 < end &&
+    email.charCodeAt(i + 1) === 10 &&
+    (email.charCodeAt(i + 2) === 32 || email.charCodeAt(i + 2) === 9)
+    ? i + 2
+    : -1 - i;
+}
+
+/** Whether a backslash may escape `code`: any ASCII with `obs`, else VCHAR and space. */
+function escapable(code: number, obs: boolean): boolean {
+  return obs ? code < 128 : code >= 32 && code <= 126;
+}
+
+/**
+ * Skips the quoted string opening at `open`. `obs` allows folding whitespace
+ * and control characters other than NUL; without it, the string follows
+ * RFC 5321: printable ASCII and spaces only.
+ */
+function skipQuoted(
+  email: string,
+  open: number,
+  end: number,
+  obs: boolean,
+): number {
+  let i = open + 1;
+  while (i < end) {
+    const code = email.charCodeAt(i);
+    if (code === 34) {
+      return i + 1;
+    }
+    if (code === 92) {
+      if (!escapable(email.charCodeAt(i + 1), obs)) {
+        return -2 - i;
+      }
+      i += 2;
+    } else if (obs && isWhitespace(code)) {
+      i = skipSpace(email, i, end);
+      if (i < 0) {
+        return i;
+      }
+    } else if (obs ? code === 0 || code > 127 : code < 32 || code > 126) {
+      return -1 - i;
+    } else {
+      i++;
+    }
+  }
+  // findAt only splits after a quoted string that closes.
+  return -1 - open;
+}
+
+/**
+ * Skips the comment opening at `open`, nested comments included. Its text
+ * may hold any ASCII but NUL, with folding whitespace; returns `-1 - open`
+ * when it never closes.
+ */
+function skipComment(email: string, open: number, end: number): number {
+  let depth = 1;
+  let i = open + 1;
+  while (i < end) {
+    const code = email.charCodeAt(i);
+    if (code === 40 /* ( */ || code === 41 /* ) */) {
+      depth += code === 40 ? 1 : -1;
+      i++;
+      if (depth === 0) {
+        return i;
+      }
+    } else if (code === 92) {
+      if (i + 1 >= end) {
+        break;
+      }
+      if (!escapable(email.charCodeAt(i + 1), true)) {
+        return -2 - i;
+      }
+      i += 2;
+    } else if (isWhitespace(code)) {
+      i = skipSpace(email, i, end);
+      if (i < 0) {
+        return i;
+      }
+    } else if (code === 0 || code > 127) {
+      return -1 - i;
+    } else {
+      i++;
+    }
+  }
+  return -1 - open;
+}
+
+/**
+ * Skips the RFC 5322 domain literal opening at `open`: any ASCII but NUL,
+ * `[`, and `]`, with escapes and folding whitespace. Returns -1 when it's
+ * malformed or never closes.
+ */
+function skipLiteral(email: string, open: number, end: number): number {
+  let i = open + 1;
+  while (i < end) {
+    const code = email.charCodeAt(i);
+    if (code === 93 /* ] */) {
+      return i + 1;
+    }
+    if (code === 92) {
+      if (i + 1 >= end || !escapable(email.charCodeAt(i + 1), true)) {
+        return -1;
+      }
+      i += 2;
+    } else if (isWhitespace(code)) {
+      i = skipSpace(email, i, end);
+      if (i < 0) {
+        return -1;
+      }
+    } else if (code === 0 || code === 91 || code > 127) {
+      return -1;
+    } else {
+      i++;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Skips the RFC 5321 address literal opening at `open`: an IPv4 address or
+ * `IPv6:` and an IPv6 address. Returns -1 for anything else.
+ */
+function skipAddressLiteral(email: string, open: number, end: number): number {
+  const close = email.indexOf(']', open + 1);
+  return close >= 0 &&
+    close < end &&
+    isAddressLiteral(email.slice(open + 1, close))
+    ? close + 1
+    : -1;
 }

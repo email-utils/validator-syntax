@@ -19,9 +19,10 @@
  * - `rfc5322`: RFC 5322's addr-spec with its obsolete syntax: dot-separated
  *   atoms and quoted strings mixed, comments and folding whitespace around
  *   every word and label, control characters in quoted strings, comments,
- *   and escapes, and any dtext in a domain literal. A CRLF must be followed
- *   by a space or tab. No 64-character local cap, but a dotted domain is
- *   still required.
+ *   and escapes, and any dtext in a domain literal. Domain labels are
+ *   atext, since RFC 5322's domain is a dot-atom, with the hostname rules
+ *   for hyphens and length on top. A CRLF must be followed by a space or
+ *   tab. No 64-character local cap, but a dotted domain is still required.
  * - `html5`: exactly the WHATWG `input[type=email]` regex.
  *
  * Every preset caps a domain label at 63 characters and the address at 254;

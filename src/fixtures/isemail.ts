@@ -12,6 +12,7 @@ import {
   type Expected,
   type IsemailFixture,
   type Preset,
+  allBut5322,
   everywhere,
   fail,
   rfc5322Only,
@@ -26,14 +27,6 @@ const rfc5322Literal: Record<Preset, Expected> = {
   rfc5322: valid,
   html5: fail('syntax.domain.invalid_char', 5),
 };
-
-/** Fails the same way under every preset but rfc5322, which gives `rfc5322`. */
-function allBut5322(
-  others: Expected,
-  rfc5322: Expected,
-): Record<Preset, Expected> {
-  return { ...everywhere(others), rfc5322 };
-}
 
 /** Quote-unaware presets fail at the opening quote; the RFC presets give `rfc`. */
 function quotedLocal(rfc: Expected): Record<Preset, Expected> {
