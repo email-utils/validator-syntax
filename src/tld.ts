@@ -3,6 +3,7 @@
 // checked. `tlds` lists IDN TLDs by their U-labels (`рф`) only, so the set
 // adds each one's A-label (`xn--p1ai`), which is the form a DNS name uses.
 import tlds from 'tlds/index.json' with { type: 'json' };
+import { toALabel } from './idn';
 
 let known: ReadonlySet<string> | undefined;
 
@@ -16,16 +17,11 @@ function buildSet(): Set<string> {
   const set = new Set(tlds);
   for (const tld of tlds) {
     if (!/^[a-z\d]+$/.test(tld)) {
-      set.add(toALabel(tld));
+      const aLabel = toALabel(tld);
+      if (aLabel !== undefined) {
+        set.add(aLabel);
+      }
     }
   }
   return set;
-}
-
-/**
- * The A-label for a U-label, by way of the WHATWG URL host parser, which
- * every runtime the package supports has and which applies UTS #46.
- */
-function toALabel(label: string): string {
-  return new URL(`http://x.${label}`).hostname.slice(2);
 }

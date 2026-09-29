@@ -75,7 +75,8 @@ export const wikipediaFixtures: readonly SyntaxFixture[] = [
     expected: rfcOnly(fail('syntax.domain.invalid_char', 6)),
   },
 
-  // Listed as valid with SMTPUTF8, which no v1 preset supports.
+  // Listed as valid with SMTPUTF8, which no preset accepts without
+  // allowUnicode.
   {
     address: 'I❤️CHOCOLATE@example.com',
     description: 'Emoji in the local part',
