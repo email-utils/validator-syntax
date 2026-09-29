@@ -1,16 +1,22 @@
 import { test } from 'vitest';
-import { grammars, splitAddress } from '../src/parse';
+import { createSyntaxValidator, parseAddress } from '../src';
 
 // validator-syntax#9 targets 300 ns for a typical address. The corpus-wide
 // bench and its gates arrive with the performance work (validator-syntax#15).
-test('splitAddress', async ({ bench }) => {
+const rfc5321 = createSyntaxValidator({ preset: 'rfc5321' });
+const rfc5322 = createSyntaxValidator({ preset: 'rfc5322' });
+
+test('parseAddress', async ({ bench }) => {
   await bench('typical address', () => {
-    splitAddress('ada.lovelace@example.co.uk', grammars.practical);
+    parseAddress('ada.lovelace@example.co.uk');
+  }).run();
+  await bench('invalid address', () => {
+    parseAddress('ada@example..com');
   }).run();
   await bench('quoted local part', () => {
-    splitAddress('"ada@home"@example.com', grammars.rfc5321);
+    rfc5321.parse('"ada@home"@example.com');
   }).run();
   await bench('comments', () => {
-    splitAddress('(work)ada@example.com(home)', grammars.rfc5322);
+    rfc5322.parse('(work)ada@example.com(home)');
   }).run();
 });

@@ -6,7 +6,13 @@
 // the default preset now disagrees.
 //
 // The preset rules behind the expectations are in ./index.ts.
-import { type LegacyFixture, everywhere, fail, valid } from './types';
+import {
+  type LegacyFixture,
+  allBut5322,
+  everywhere,
+  fail,
+  valid,
+} from './types';
 
 const quotedLocalRejected =
   'practical rejects quoted local parts, which are legal but never seen on real mailboxes';
@@ -438,13 +444,15 @@ export const legacyFixtures: readonly LegacyFixture[] = [
   ...withUppercase({
     address: 'i_like_underscore@but_its_not_allowed_in_this_part.example.com',
     description: 'Underscores in the domain',
-    expected: everywhere(fail('syntax.domain.invalid_char', 21)),
+    // `_` is atext, and RFC 5322's domain is a dot-atom.
+    expected: allBut5322(fail('syntax.domain.invalid_char', 21), valid),
     legacy: false,
   }),
   ...withUppercase({
     address: 'james@cb$.com',
     description: 'Dollar sign in the domain',
-    expected: everywhere(fail('syntax.domain.invalid_char', 8)),
+    // `$` is atext, and RFC 5322's domain is a dot-atom.
+    expected: allBut5322(fail('syntax.domain.invalid_char', 8), valid),
     legacy: false,
   }),
 

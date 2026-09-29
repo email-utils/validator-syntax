@@ -1,8 +1,14 @@
-// Checks on the corpus data itself. The v1 functions run the corpus once
-// they exist (validator-syntax#10); until then these keep the table honest.
+// Runs the corpus through every entry point under every preset, and checks
+// the corpus data itself.
 import { describe, expect, it } from 'vitest';
-import EmailSyntaxValidator from '../src';
 import {
+  type Result,
+  createSyntaxValidator,
+  isValidSyntax,
+  parseAddress,
+} from '../src';
+import {
+  type Expected,
   isemailFixtures,
   legacyFixtures,
   presets,
@@ -12,10 +18,22 @@ import {
   syntaxFixtures,
   wikipediaFixtures,
 } from '../src/fixtures';
+import { EmailSyntaxValidator } from './legacy/validator';
 
 // The WHATWG input[type=email] pattern, verbatim from the HTML standard.
 const whatwgEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+
+/** The result without its value or message, which the corpus doesn't record. */
+function outcome(result: Result<unknown>): Expected {
+  if (result.ok) {
+    return { ok: true };
+  }
+  const { reason, index } = result;
+  return index === undefined
+    ? { ok: false, reason }
+    : { ok: false, reason, index };
+}
 
 /** The character each positioned reason code must point at, where there's one. */
 const pointsAt: Partial<Record<string, string>> = {
@@ -71,6 +89,20 @@ describe('corpus', () => {
   });
 
   describe.each(syntaxFixtures)('$address', ({ address, expected }) => {
+    it.each(presets)('gives the expected result under %s', (preset) => {
+      expect(outcome(parseAddress(address, { preset }))).toEqual(
+        expected[preset],
+      );
+    });
+
+    it.each(presets)('agrees across the entry points under %s', (preset) => {
+      const validator = createSyntaxValidator({ preset });
+      const result = parseAddress(address, { preset });
+      expect(validator.parse(address)).toEqual(result);
+      expect(isValidSyntax(address, { preset })).toBe(result.ok);
+      expect(validator.isValid(address)).toBe(result.ok);
+    });
+
     const accepting = presets.filter((preset) => expected[preset].ok);
     const failures = presets.flatMap((preset) => {
       const result = expected[preset];
