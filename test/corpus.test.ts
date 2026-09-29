@@ -1,14 +1,8 @@
 // Runs the corpus through every entry point under every preset, and checks
 // the corpus data itself.
 import { describe, expect, it } from 'vitest';
+import { createSyntaxValidator, isValidSyntax, parseAddress } from '../src';
 import {
-  type Result,
-  createSyntaxValidator,
-  isValidSyntax,
-  parseAddress,
-} from '../src';
-import {
-  type Expected,
   isemailFixtures,
   legacyFixtures,
   presets,
@@ -19,21 +13,11 @@ import {
   wikipediaFixtures,
 } from '../src/fixtures';
 import { EmailSyntaxValidator } from './legacy/validator';
+import { outcome } from './outcome';
 
 // The WHATWG input[type=email] pattern, verbatim from the HTML standard.
 const whatwgEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-
-/** The result without its value or message, which the corpus doesn't record. */
-function outcome(result: Result<unknown>): Expected {
-  if (result.ok) {
-    return { ok: true };
-  }
-  const { reason, index } = result;
-  return index === undefined
-    ? { ok: false, reason }
-    : { ok: false, reason, index };
-}
 
 /** The character each positioned reason code must point at, where there's one. */
 const pointsAt: Partial<Record<string, string>> = {
