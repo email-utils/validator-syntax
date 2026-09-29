@@ -45,6 +45,9 @@
  *
  * @packageDocumentation
  */
+import { createSyntaxValidator } from '../index';
+import type { SyntaxOptions } from '../options';
+import type { ReasonCode } from '../result';
 import { isemailFixtures } from './isemail';
 import { legacyFixtures } from './legacy';
 import { rfc3696Fixtures } from './rfc3696';
@@ -116,5 +119,95 @@ export function supportMatrix(): SupportRow[] {
       html5: supportIn('html5'),
     };
     return { feature, label, support, fixtures };
+  });
+}
+
+/** An address the configuration accepts. */
+export interface ValidPreviewEntry {
+  address: string;
+  /** The fixture's description; absent for addresses you pass in. */
+  description?: string;
+  /** Whether the preset alone, without the overrides, would reject it. */
+  changed: boolean;
+}
+
+/** An address the configuration rejects, and the first check it fails. */
+export interface InvalidPreviewEntry {
+  address: string;
+  /** The fixture's description; absent for addresses you pass in. */
+  description?: string;
+  reason: ReasonCode;
+  message?: string;
+  index?: number;
+  /** Whether the preset alone, without the overrides, would accept it. */
+  changed: boolean;
+}
+
+/** The addresses split by whether the configuration accepts them. */
+export interface SyntaxPreview {
+  valid: ValidPreviewEntry[];
+  invalid: InvalidPreviewEntry[];
+}
+
+/**
+ * Runs `addresses` through `createSyntaxValidator(options)` and splits them
+ * into the ones it accepts and the ones it rejects, each list in input
+ * order.
+ *
+ * @remarks
+ * `changed` marks the addresses the overrides move: those the preset alone
+ * would judge the other way. With no overrides, nothing is changed.
+ *
+ * @example
+ * ```ts
+ * const { valid, invalid } = previewSyntaxOptions({ checkTld: false });
+ * valid.filter((entry) => entry.changed); // now accepted, e.g. example@s.example
+ * previewSyntaxOptions({ preset: 'html5' }, ['ada@localhost']).valid; // [{ address: 'ada@localhost', changed: false }]
+ * ```
+ *
+ * @param addresses - The addresses to judge; `syntaxFixtures` by default.
+ * @throws TypeError when `options` are malformed, or `addresses` isn't an
+ * array of strings.
+ */
+export function previewSyntaxOptions(
+  options?: SyntaxOptions,
+  addresses?: readonly string[],
+): SyntaxPreview {
+  const validator = createSyntaxValidator(options);
+  const preset = createSyntaxValidator({ preset: options?.preset });
+  const entries = addresses === undefined ? syntaxFixtures : own(addresses);
+  const valid: ValidPreviewEntry[] = [];
+  const invalid: InvalidPreviewEntry[] = [];
+  for (const { address, description } of entries) {
+    const result = validator.parse(address);
+    const described = description === undefined ? {} : { description };
+    if (result.ok) {
+      const changed = !preset.isValid(address);
+      valid.push({ address, ...described, changed });
+    } else {
+      const { ok: _, ...failure } = result;
+      invalid.push({
+        address,
+        ...described,
+        ...failure,
+        changed: preset.isValid(address),
+      });
+    }
+  }
+  return { valid, invalid };
+}
+
+/** Checks the caller's addresses, before any of them is parsed. */
+function own(
+  addresses: readonly string[],
+): { address: string; description?: undefined }[] {
+  if (!Array.isArray(addresses)) {
+    throw new TypeError('Expected the addresses to be an array');
+  }
+  return addresses.map((address: unknown, i) => {
+    if (typeof address !== 'string') {
+      throw new TypeError(`Expected addresses[${i}] to be a string`);
+    }
+    return { address };
   });
 }
