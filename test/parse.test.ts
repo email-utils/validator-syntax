@@ -263,14 +263,206 @@ describe('options', () => {
     ['a non-boolean override', { checkTld: 'yes' }],
     ['comments under rfc5321', { preset: 'rfc5321', allowComments: true }],
     ['comments under html5', { preset: 'html5', allowComments: true }],
+    ['Unicode under html5', { preset: 'html5', allowUnicode: true }],
+    ['IDNs under html5', { preset: 'html5', allowIdn: true }],
+    ['IP literals under html5', { preset: 'html5', allowIpLiteral: true }],
   ])('throws TypeError on %s', (_, options) => {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     expect(() => parseAddress('a@x.com', options as never)).toThrow(TypeError);
   });
 
-  it('accepts allowComments: false under any preset', () => {
+  it('accepts the overrides as false under html5', () => {
     expect(
-      parseAddress('a@x.com', { preset: 'html5', allowComments: false }).ok,
+      parseAddress('a@x.com', {
+        ...html5,
+        allowComments: false,
+        allowUnicode: false,
+        allowIdn: false,
+        allowIpLiteral: false,
+      }).ok,
     ).toBe(true);
+  });
+});
+
+describe('allowUnicode', () => {
+  const unicode = { allowUnicode: true };
+
+  it('accepts non-ASCII atoms, surrogate pairs included', () => {
+    expect(parseAddress('用户@example.com')).toMatchObject({
+      reason: 'syntax.local.invalid_char',
+      index: 0,
+    });
+    for (const address of [
+      '用户@example.com',
+      'I❤️CHOCOLATE@example.com',
+      'josé.garcía@example.com',
+      '😀@example.com',
+    ]) {
+      expect(parseAddress(address, unicode)).toMatchObject({
+        ok: true,
+        value: { local: address.slice(0, address.indexOf('@')) },
+      });
+    }
+  });
+
+  it('fails a lone surrogate', () => {
+    for (const [address, index] of [
+      ['\uD800a@x.com', 0],
+      ['a\uDC00@x.com', 1],
+      ['a\uD83D@x.com', 1],
+    ] as const) {
+      expect(parseAddress(address, unicode)).toMatchObject({
+        reason: 'syntax.local.invalid_char',
+        index,
+      });
+    }
+  });
+
+  it('accepts non-ASCII in quoted strings and comments', () => {
+    expect(
+      parseAddress('"用 户"@example.com', { ...rfc5321, ...unicode }).ok,
+    ).toBe(true);
+    expect(parseAddress('"用 户"@example.com', rfc5321)).toMatchObject({
+      reason: 'syntax.local.invalid_char',
+      index: 1,
+    });
+    expect(
+      parseAddress('(注)a@x.com(注)', { ...rfc5322, ...unicode }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        comments: [
+          { text: '注', position: 'before-local' },
+          { text: '注', position: 'after-domain' },
+        ],
+      },
+    });
+    expect(parseAddress('(注)a@x.com', rfc5322)).toMatchObject({
+      reason: 'syntax.local.invalid_char',
+      index: 1,
+    });
+  });
+
+  it('caps the local part at 64 UTF-8 octets', () => {
+    // 用 is 3 octets and é is 2.
+    expect(parseAddress(`${'用'.repeat(21)}@x.com`, unicode).ok).toBe(true);
+    expect(parseAddress(`${'用'.repeat(22)}@x.com`, unicode)).toMatchObject({
+      reason: 'syntax.local.too_long',
+    });
+    expect(parseAddress(`${'é'.repeat(32)}@x.com`, unicode).ok).toBe(true);
+    expect(parseAddress(`${'é'.repeat(33)}@x.com`, unicode)).toMatchObject({
+      reason: 'syntax.local.too_long',
+    });
+  });
+
+  it('caps the address at 254 octets', () => {
+    // A 195-character domain leaves 58 octets for the local part: 29 é's,
+    // which would be 29 characters.
+    const domain = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.com`;
+    expect(parseAddress(`${'é'.repeat(29)}@${domain}`, unicode).ok).toBe(true);
+    expect(parseAddress(`${'é'.repeat(29)}x@${domain}`, unicode)).toMatchObject(
+      { reason: 'syntax.address.too_long' },
+    );
+  });
+
+  it('leaves the domain ASCII', () => {
+    expect(parseAddress('a@bücher.de', unicode)).toMatchObject({
+      reason: 'syntax.domain.invalid_char',
+      index: 3,
+    });
+  });
+});
+
+describe('allowIdn', () => {
+  const idn = { allowIdn: true };
+
+  it('accepts U-labels, keeping them as written', () => {
+    expect(parseAddress('ada@bücher.de')).toMatchObject({
+      reason: 'syntax.domain.invalid_char',
+      index: 5,
+    });
+    expect(parseAddress('ada@Bücher.de', idn)).toEqual({
+      ok: true,
+      value: { local: 'ada', domain: 'Bücher.de', tld: 'de', comments: [] },
+    });
+    expect(parseAddress('ada@例え.jp', idn).ok).toBe(true);
+  });
+
+  it('checks a U-label TLD against the IANA set', () => {
+    expect(parseAddress('ada@пример.рф', idn)).toMatchObject({
+      ok: true,
+      value: { tld: 'рф' },
+    });
+    expect(parseAddress('ada@пример.РФ', idn).ok).toBe(true);
+    expect(parseAddress('ada@example.ёжик', idn)).toMatchObject({
+      reason: 'syntax.tld.unknown',
+    });
+  });
+
+  it.each([
+    ['a zero-width joiner out of context', 'a@x\u200Dy.com', 2],
+    ['a right-to-left label mixed with Latin', 'a@باa.com', 2],
+    ['fullwidth letters, which map to ASCII', 'a@ｅｘａｍｐｌｅ.com', 2],
+    ['an ideographic full stop, which maps to a dot', 'a@x。y.com', 2],
+    ['a leading hyphen', 'a@-ü.de', 2],
+    ['a trailing hyphen', 'a@ü-.de', 3],
+    ['ASCII outside LDH in rfc5322', 'a@ü$.de', 2],
+  ])('fails %s', (_, address, index) => {
+    expect(
+      parseAddress(address, { ...rfc5322, ...idn, allowComments: false }),
+    ).toMatchObject({ reason: 'syntax.domain.label_invalid', index });
+  });
+
+  it('caps a label at 63 characters as an A-label', () => {
+    // 57 ü's make a 63-character A-label, and 58 make 64.
+    expect(parseAddress(`a@${'ü'.repeat(57)}.de`, idn).ok).toBe(true);
+    expect(parseAddress(`a@${'ü'.repeat(58)}.de`, idn)).toMatchObject({
+      reason: 'syntax.domain.label_invalid',
+      index: 2,
+    });
+  });
+
+  it('caps the domain at 253 characters as A-labels', () => {
+    // 252 characters as written, but bücher is xn--bcher-kva, 7 longer.
+    const labels = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(50)}`;
+    expect(parseAddress(`a@${labels}.bucher.de`, idn).ok).toBe(true);
+    expect(parseAddress(`a@${labels}.bücher.de`, idn)).toMatchObject({
+      reason: 'syntax.domain.too_long',
+    });
+  });
+
+  it('leaves the local part ASCII', () => {
+    expect(parseAddress('用户@example.com', idn)).toMatchObject({
+      reason: 'syntax.local.invalid_char',
+      index: 0,
+    });
+  });
+});
+
+describe('allowIpLiteral', () => {
+  it('adds address literals to practical', () => {
+    const options = { allowIpLiteral: true };
+    expect(parseAddress('a@[192.0.2.1]')).toMatchObject({
+      reason: 'syntax.domain.invalid_char',
+      index: 2,
+    });
+    expect(parseAddress('a@[192.0.2.1]', options)).toEqual({
+      ok: true,
+      value: { local: 'a', domain: '[192.0.2.1]', comments: [] },
+    });
+    expect(parseAddress('a@[IPv6:2001:db8::1]', options).ok).toBe(true);
+    expect(parseAddress('a@[example]', options)).toMatchObject({
+      reason: 'syntax.domain.literal_invalid',
+      index: 2,
+    });
+  });
+
+  it('turns literals off in the RFC presets', () => {
+    for (const preset of [rfc5321, rfc5322]) {
+      expect(parseAddress('a@[192.0.2.1]', preset).ok).toBe(true);
+      expect(
+        parseAddress('a@[192.0.2.1]', { ...preset, allowIpLiteral: false }),
+      ).toMatchObject({ reason: 'syntax.domain.invalid_char', index: 2 });
+    }
   });
 });

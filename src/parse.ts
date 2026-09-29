@@ -3,7 +3,8 @@
 // scanned left to right against the preset's rules, and the lengths, the
 // dot, and the TLD are checked last. The first failure wins, in the order
 // the corpus sets out (src/fixtures/index.ts).
-import { inClass, isWhitespace } from './chars';
+import { inClass, isWhitespace, nonAsciiAt, utf8Length } from './chars';
+import { toALabel } from './idn';
 import { isAddressLiteral } from './ip';
 import type { Rules } from './options';
 import type { ReasonCode, Result } from './result';
@@ -152,17 +153,19 @@ export function parse(
   if (typeof local !== 'string') {
     return local;
   }
-  if (local.length > rules.localCap) {
+  // RFC 6531 keeps the caps in octets, and DNS counts a domain's A-labels.
+  const localSize = rules.unicode ? utf8Length(local) : local.length;
+  if (localSize > rules.localCap) {
     return fail('syntax.local.too_long');
   }
   const domain = scanDomain(email, at, rules, comments);
   if ('reason' in domain) {
     return domain;
   }
-  if (domain.domain.length > rules.domainCap) {
+  if (domain.size > rules.domainCap) {
     return fail('syntax.domain.too_long');
   }
-  if (local.length + 1 + domain.domain.length > 254) {
+  if (localSize + 1 + domain.size > 254) {
     return fail('syntax.address.too_long');
   }
   const { tld } = domain;
@@ -210,7 +213,8 @@ function scanLocal(
   while (i < at) {
     const code = email.charCodeAt(i);
     const quote = code === 34 && rules.quotes && (rules.obs || i === 0);
-    if (quote || inClass(code, rules.local)) {
+    const atom = inClass(code, rules.local);
+    if (quote || atom || (rules.unicode && nonAsciiAt(email, i, at) > 0)) {
       if (edge >= 0) {
         return fail('syntax.comment.not_allowed', edge);
       }
@@ -219,16 +223,20 @@ function scanLocal(
           ? fail('syntax.local.unquoted_space', space)
           : fail('syntax.local.invalid_char', i);
       }
-      let next = i + 1;
+      let next: number;
       if (quote) {
-        next = skipQuoted(email, i, at, rules.obs);
+        next = skipQuoted(email, i, at, rules.obs, rules.unicode);
         if (next < 0) {
           return fail('syntax.local.invalid_char', -1 - next);
         }
         closed = !rules.obs;
       } else {
+        next = atom ? i + 1 : i;
         while (next < at && inClass(email.charCodeAt(next), rules.local)) {
           next++;
+        }
+        if (rules.unicode) {
+          next = skipUnicode(email, next, at, rules.local);
         }
       }
       local += unfold(email.slice(i, next));
@@ -260,7 +268,7 @@ function scanLocal(
         }
         edge = edge < 0 ? i : edge;
       }
-      const next = skipComment(email, i, at);
+      const next = skipComment(email, i, at, rules.unicode);
       if (next < 0) {
         return fail('syntax.local.invalid_char', -1 - next);
       }
@@ -299,6 +307,8 @@ interface Domain {
   domain: string;
   tld?: string;
   literal: boolean;
+  /** The domain's length with its U-labels as A-labels. */
+  size: number;
 }
 
 /**
@@ -321,19 +331,22 @@ function scanDomain(
   let edge = -1;
   let trailing = comments.length;
   let tld = '';
+  // What converting the U-labels to A-labels adds to the length.
+  let growth = 0;
 
   let i = at + 1;
   while (i < end) {
     const code = email.charCodeAt(i);
     const opensLiteral = code === 91 && rules.literals && labels === 0;
-    if (opensLiteral || inClass(code, rules.domain)) {
+    const ldh = inClass(code, rules.domain);
+    if (opensLiteral || ldh || (rules.idn && nonAsciiAt(email, i, end) > 0)) {
       if (edge >= 0) {
         return fail('syntax.comment.not_allowed', edge);
       }
       if (afterLabel) {
         return fail('syntax.domain.invalid_char', space >= 0 ? space : i);
       }
-      let next = i + 1;
+      let next: number;
       if (opensLiteral) {
         next = rules.obs
           ? skipLiteral(email, i, end)
@@ -343,10 +356,25 @@ function scanDomain(
         }
         literal = true;
       } else {
+        next = ldh ? i + 1 : i;
         while (next < end && inClass(email.charCodeAt(next), rules.domain)) {
           next++;
         }
-        const bad = checkLabel(email, i, next);
+        const ascii = next;
+        if (rules.idn) {
+          next = skipUnicode(email, next, end, rules.domain);
+        }
+        let size = next - i;
+        // The ASCII run stopped short, so the label is a U-label.
+        if (next > ascii) {
+          const aLabel = toALabel(email.slice(i, next));
+          if (aLabel === undefined) {
+            return fail('syntax.domain.label_invalid', i);
+          }
+          size = aLabel.length;
+          growth += size - (next - i);
+        }
+        const bad = checkLabel(email, i, next, size);
         if (bad >= 0) {
           return fail('syntax.domain.label_invalid', bad);
         }
@@ -380,7 +408,7 @@ function scanDomain(
         }
         edge = edge < 0 ? i : edge;
       }
-      const next = skipComment(email, i, end);
+      const next = skipComment(email, i, end, rules.unicode);
       if (next < 0) {
         return -1 - next === i
           ? fail('syntax.comment.unterminated', i)
@@ -412,20 +440,48 @@ function scanDomain(
     return fail('syntax.domain.label_invalid', dot);
   }
   settle(comments, trailing, 'after-domain');
+  const size = domain.length + growth;
   return literal || labels === 1
-    ? { domain, literal }
-    : { domain, tld, literal };
+    ? { domain, literal, size }
+    : { domain, tld, literal, size };
 }
 
 /**
- * Checks the hostname label from `start` to `end`: returns the index of a
- * leading or trailing hyphen, the start of a label over 63 characters, or -1.
+ * Carries an atom or label on from `i`, where its ASCII run stopped, through
+ * any non-ASCII characters and the class-`flag` characters after them.
  */
-function checkLabel(email: string, start: number, end: number): number {
+function skipUnicode(
+  email: string,
+  i: number,
+  end: number,
+  flag: number,
+): number {
+  let width = i < end ? nonAsciiAt(email, i, end) : 0;
+  while (width > 0) {
+    i += width;
+    while (i < end && inClass(email.charCodeAt(i), flag)) {
+      i++;
+    }
+    width = i < end ? nonAsciiAt(email, i, end) : 0;
+  }
+  return i;
+}
+
+/**
+ * Checks the hostname label from `start` to `end`, `size` characters long as
+ * an A-label: returns the index of a leading or trailing hyphen, the start of
+ * a label over 63 characters, or -1.
+ */
+function checkLabel(
+  email: string,
+  start: number,
+  end: number,
+  size: number,
+): number {
   if (email.charCodeAt(start) === 45 /* - */) {
     return start;
   }
-  if (end - start > 63) {
+  if (size > 63) {
     return start;
   }
   return email.charCodeAt(end - 1) === 45 ? end - 1 : -1;
@@ -478,13 +534,14 @@ function escapable(code: number, obs: boolean): boolean {
 /**
  * Skips the quoted string opening at `open`. `obs` allows folding whitespace
  * and control characters other than NUL; without it, the string follows
- * RFC 5321: printable ASCII and spaces only.
+ * RFC 5321: printable ASCII and spaces only. `unicode` adds non-ASCII.
  */
 function skipQuoted(
   email: string,
   open: number,
   end: number,
   obs: boolean,
+  unicode: boolean,
 ): number {
   let i = open + 1;
   while (i < end) {
@@ -503,7 +560,11 @@ function skipQuoted(
         return i;
       }
     } else if (obs ? code === 0 || code > 127 : code < 32 || code > 126) {
-      return -1 - i;
+      const width = unicode ? nonAsciiAt(email, i, end) : 0;
+      if (width === 0) {
+        return -1 - i;
+      }
+      i += width;
     } else {
       i++;
     }
@@ -514,10 +575,15 @@ function skipQuoted(
 
 /**
  * Skips the comment opening at `open`, nested comments included. Its text
- * may hold any ASCII but NUL, with folding whitespace; returns `-1 - open`
- * when it never closes.
+ * may hold any ASCII but NUL, with folding whitespace, and non-ASCII with
+ * `unicode`; returns `-1 - open` when it never closes.
  */
-function skipComment(email: string, open: number, end: number): number {
+function skipComment(
+  email: string,
+  open: number,
+  end: number,
+  unicode: boolean,
+): number {
   let depth = 1;
   let i = open + 1;
   while (i < end) {
@@ -542,7 +608,11 @@ function skipComment(email: string, open: number, end: number): number {
         return i;
       }
     } else if (code === 0 || code > 127) {
-      return -1 - i;
+      const width = unicode ? nonAsciiAt(email, i, end) : 0;
+      if (width === 0) {
+        return -1 - i;
+      }
+      i += width;
     } else {
       i++;
     }
