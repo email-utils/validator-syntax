@@ -108,3 +108,99 @@ describe('local-part dots and quoting (validator-syntax#11)', () => {
     );
   });
 });
+
+describe('domain labels and lengths (validator-syntax#12)', () => {
+  const a63 = 'a'.repeat(63);
+
+  /** A domain `length` characters long: three 63-character labels, then `.com`. */
+  function domain(length: number): string {
+    return `${a63}.${a63}.${a63}.${'a'.repeat(length - 196)}.com`;
+  }
+
+  describe('rejects an empty label and a leading or trailing hyphen', () => {
+    // 0.0.1 checked only for `..`, and allowed hyphens anywhere.
+    pin([
+      {
+        address: 'a@.example.com',
+        legacy: true,
+        expected: everywhere(fail('syntax.domain.label_invalid', 2)),
+      },
+      {
+        address: 'a@-example.com',
+        legacy: true,
+        expected: everywhere(fail('syntax.domain.label_invalid', 2)),
+      },
+      {
+        address: 'a@example-.com',
+        legacy: true,
+        expected: everywhere(fail('syntax.domain.label_invalid', 9)),
+      },
+    ]);
+  });
+
+  describe('rejects a trailing dot', () => {
+    // 0.0.1 rejected it only because the empty TLD wasn't in its list, so
+    // with its TLD check off it passed. v1 rejects the empty label itself.
+    pin([
+      {
+        address: 'a@example.',
+        legacy: false,
+        expected: everywhere(fail('syntax.domain.label_invalid', 9)),
+      },
+    ]);
+  });
+
+  describe('caps a label at 63 characters', () => {
+    // 0.0.1 had no label cap.
+    pin([
+      {
+        address: `a@${a63}.com`,
+        legacy: true,
+        expected: everywhere(valid),
+      },
+      {
+        address: `a@${a63}a.com`,
+        legacy: true,
+        expected: everywhere(fail('syntax.domain.label_invalid', 2)),
+      },
+    ]);
+  });
+
+  describe('caps the address at 254 characters and the domain at 253', () => {
+    // 0.0.1 had neither cap. A 253-character domain can't fit in a
+    // 254-character address, so the domain cap shows only past 253, where
+    // it's checked first; html5 has no domain cap.
+    pin([
+      {
+        address: `a@${domain(252)}`,
+        legacy: true,
+        expected: everywhere(valid),
+      },
+      {
+        address: `ab@${domain(252)}`,
+        legacy: true,
+        expected: everywhere(fail('syntax.address.too_long')),
+      },
+      {
+        address: `a@${domain(254)}`,
+        legacy: true,
+        expected: {
+          ...everywhere(fail('syntax.domain.too_long')),
+          html5: fail('syntax.address.too_long'),
+        },
+      },
+    ]);
+  });
+
+  describe('accepts a single-character label', () => {
+    // 0.0.1 wanted more than one character before the last dot, so it
+    // rejected `x.com` but not `x.y.com`.
+    pin([
+      {
+        address: 'user@x.com',
+        legacy: false,
+        expected: everywhere(valid),
+      },
+    ]);
+  });
+});
