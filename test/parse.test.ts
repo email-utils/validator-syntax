@@ -203,6 +203,14 @@ describe('options', () => {
     ).toBe(false);
   });
 
+  it('knows an IDN TLD by its A-label', () => {
+    expect(parseAddress('user@example.xn--p1ai')).toMatchObject({
+      ok: true,
+      value: { domain: 'example.xn--p1ai', tld: 'xn--p1ai' },
+    });
+    expect(parseAddress('user@EXAMPLE.XN--P1AI').ok).toBe(true);
+  });
+
   it('allows a dotless domain, which then has no TLD to check', () => {
     expect(parseAddress('a@localhost', { allowNoTld: true })).toMatchObject({
       ok: true,
