@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0-rc.2](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-09-30)
+
+
+### Features
+
+* **parser:** add maxLength and convert U-labels in batches ([#43](https://github.com/email-utils/validator-syntax/issues/43)) ([623e210](https://github.com/email-utils/validator-syntax/commit/623e210768a32bda2e50182c4eba5c6c1a17fbf1))
+
+
+### Bug Fixes
+
+* **parser:** describe unquoted_space as whitespace, not a space ([#39](https://github.com/email-utils/validator-syntax/issues/39)) ([3eff0eb](https://github.com/email-utils/validator-syntax/commit/3eff0ebfa02eb852bbb16beaefc55018702b836b))
+
 ## [1.0.0-rc.1](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.0...v1.0.0-rc.1) (2026-09-29)
 
 
