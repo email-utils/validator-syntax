@@ -1,0 +1,12 @@
+[
+  {
+    "name": "@email-utils/validator-syntax",
+    "path": "dist/index.mjs",
+    "limit": "9 kB"
+  },
+  {
+    "name": "@email-utils/validator-syntax/fixtures",
+    "path": "dist/fixtures.mjs",
+    "limit": "15.5 kB"
+  }
+]
