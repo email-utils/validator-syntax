@@ -1,6 +1,20 @@
 // Character classes as bit flags over ASCII, so each preset names the class
 // its atoms and labels are made of and the scanner tests one table entry.
 
+// oxlint-disable-next-line typescript/unbound-method -- only ever called with `.call`
+const charCodeAt = String.prototype.charCodeAt;
+
+/**
+ * `text.charCodeAt(i)`, through the builtin itself. Called as a method,
+ * `charCodeAt` is looked up on the string, and a call site that has seen
+ * enough kinds of string (one-byte and two-byte, flat, sliced, and
+ * concatenated) goes megamorphic: V8 stops inlining it, and after arbitrary
+ * Unicode input every scan ran 2–3× slower (validator-syntax#15).
+ */
+export function codeAt(text: string, i: number): number {
+  return charCodeAt.call(text, i);
+}
+
 /** RFC 5322 atext: letters, digits, and ``!#$%&'*+-/=?^_`{|}~``. */
 export const ATEXT = 1;
 /** atext without the `%` and `!` route characters. */
@@ -14,7 +28,7 @@ const table = new Uint8Array(128);
 
 function mark(chars: string, flag: number): void {
   for (let i = 0; i < chars.length; i++) {
-    table[chars.charCodeAt(i)]! |= flag;
+    table[codeAt(chars, i)]! |= flag;
   }
 }
 
@@ -40,22 +54,23 @@ export function isWhitespace(code: number): boolean {
  * lone surrogate, which no UTF-8 text can hold.
  */
 export function nonAsciiAt(text: string, i: number, end: number): number {
-  const code = text.charCodeAt(i);
+  const code = codeAt(text, i);
   if (code < 128 || (code >= 0xdc00 && code <= 0xdfff)) {
     return 0;
   }
   if (code < 0xd800 || code > 0xdbff) {
     return 1;
   }
-  const low = i + 1 < end ? text.charCodeAt(i + 1) : 0;
+  const low = i + 1 < end ? codeAt(text, i + 1) : 0;
   return low >= 0xdc00 && low <= 0xdfff ? 2 : 0;
 }
 
 /** The length of `text` in UTF-8 octets, the unit RFC 6531 caps a local part in. */
 export function utf8Length(text: string): number {
-  let octets = text.length;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
+  const end = text.length;
+  let octets = end;
+  for (let i = 0; i < end; i++) {
+    const code = codeAt(text, i);
     // A surrogate pair is 2 units and 4 octets; the rest outside ASCII are
     // 1 unit and 2 or 3 octets.
     if (code >= 0x800 && (code < 0xd800 || code > 0xdfff)) {
@@ -65,4 +80,19 @@ export function utf8Length(text: string): number {
     }
   }
   return octets;
+}
+
+/**
+ * The code points in `text` from `start` to `end`, which must not split a
+ * surrogate pair: its length with each pair counted once.
+ */
+export function codePoints(text: string, start: number, end: number): number {
+  let count = end - start;
+  for (let i = start; i < end; i++) {
+    const code = codeAt(text, i);
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      count--;
+    }
+  }
+  return count;
 }

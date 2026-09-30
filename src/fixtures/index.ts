@@ -35,8 +35,9 @@
  * string, comment, or literal left open runs to the end, taking any `@`
  * with it.
  *
- * The first failure wins, checked in this order: empty input; the split;
- * the local part, left to right, then its length; the domain, left to right,
+ * The first failure wins, checked in this order: empty input; input longer
+ * than `maxLength` (512 by default, which no fixture reaches); the split; the
+ * local part, left to right, then its length; the domain, left to right,
  * then its length; the address length; a dotless domain; the TLD. Where a
  * failure has a position, `index` points at the first offending character
  * in the whole address: the `(` of a disallowed or unterminated comment,

@@ -82,6 +82,22 @@ export interface SyntaxOptions {
    * @defaultValue `true` in `rfc5321` and `rfc5322`, `false` elsewhere
    */
   allowIpLiteral?: boolean | undefined;
+  /**
+   * The longest input accepted, counted in UTF-16 code units, as
+   * `email.length` counts. Longer input fails as `syntax.address.too_long`
+   * before it's scanned, so it's rejected in constant time however long it
+   * is. A positive integer, or `Infinity` for no limit.
+   *
+   * @remarks
+   * The address caps (254 characters, and 64 and 253 for the local part and
+   * domain where the preset has them) still apply within it. This bounds the
+   * input as written, comments and folding whitespace included, which those
+   * caps don't count. Throws `TypeError` when it isn't a positive integer or
+   * `Infinity`.
+   *
+   * @defaultValue `512` in every preset
+   */
+  maxLength?: number | undefined;
 }
 
 /** What the parser checks, resolved from a preset and its overrides. */
@@ -116,6 +132,8 @@ export interface Rules {
   unicode: boolean;
   /** U-label domain labels. */
   idn: boolean;
+  /** The longest input scanned, in UTF-16 code units. */
+  maxLength: number;
 }
 
 const presets: Readonly<Record<Preset, Readonly<Rules>>> = {
@@ -132,6 +150,7 @@ const presets: Readonly<Record<Preset, Readonly<Rules>>> = {
     allowNoTld: false,
     unicode: false,
     idn: false,
+    maxLength: 512,
   },
   rfc5321: {
     local: ATEXT,
@@ -146,6 +165,7 @@ const presets: Readonly<Record<Preset, Readonly<Rules>>> = {
     allowNoTld: false,
     unicode: false,
     idn: false,
+    maxLength: 512,
   },
   rfc5322: {
     local: ATEXT,
@@ -160,6 +180,7 @@ const presets: Readonly<Record<Preset, Readonly<Rules>>> = {
     allowNoTld: false,
     unicode: false,
     idn: false,
+    maxLength: 512,
   },
   html5: {
     local: HTML5,
@@ -174,6 +195,7 @@ const presets: Readonly<Record<Preset, Readonly<Rules>>> = {
     allowNoTld: true,
     unicode: false,
     idn: false,
+    maxLength: 512,
   },
 };
 
@@ -200,8 +222,9 @@ const unsupported: Readonly<
  * Resolves `options` into the rules they select.
  *
  * @throws TypeError when `options` isn't an object, names an unknown option
- * or preset, gives a non-boolean override, or turns on something the
- * preset's grammar has no room for.
+ * or preset, gives a non-boolean override or a `maxLength` that isn't a
+ * positive integer or `Infinity`, or turns on something the preset's grammar
+ * has no room for.
  */
 export function resolve(options: SyntaxOptions | undefined): Readonly<Rules> {
   if (options === undefined) {
@@ -211,7 +234,11 @@ export function resolve(options: SyntaxOptions | undefined): Readonly<Rules> {
     throw new TypeError('Expected the options to be an object');
   }
   for (const key of Object.keys(options)) {
-    if (key !== 'preset' && !(overrides as readonly string[]).includes(key)) {
+    if (
+      key !== 'preset' &&
+      key !== 'maxLength' &&
+      !(overrides as readonly string[]).includes(key)
+    ) {
       throw new TypeError(`Unknown option: ${key}`);
     }
   }
@@ -226,12 +253,25 @@ export function resolve(options: SyntaxOptions | undefined): Readonly<Rules> {
       throw new TypeError(`Expected ${key} to be a boolean`);
     }
   }
+  const { maxLength } = options;
+  if (
+    maxLength !== undefined &&
+    maxLength !== Infinity &&
+    !(Number.isInteger(maxLength) && maxLength > 0)
+  ) {
+    throw new TypeError(
+      'Expected maxLength to be a positive integer or Infinity',
+    );
+  }
   for (const key of unsupported[preset]) {
     if (options[key] === true) {
       throw new TypeError(`${key} can’t be true with the ${preset} preset`);
     }
   }
-  if (overrides.every((key) => options[key] === undefined)) {
+  if (
+    maxLength === undefined &&
+    overrides.every((key) => options[key] === undefined)
+  ) {
     return base;
   }
   return {
@@ -242,5 +282,6 @@ export function resolve(options: SyntaxOptions | undefined): Readonly<Rules> {
     unicode: options.allowUnicode ?? base.unicode,
     idn: options.allowIdn ?? base.idn,
     literals: options.allowIpLiteral ?? base.literals,
+    maxLength: maxLength ?? base.maxLength,
   };
 }
