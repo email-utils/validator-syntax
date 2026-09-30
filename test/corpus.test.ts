@@ -19,12 +19,13 @@ import { outcome } from './outcome';
 const whatwgEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
-/** The character each positioned reason code must point at, where there's one. */
+/** The characters each positioned reason code may point at, where it's known. */
 const pointsAt: Partial<Record<string, string>> = {
   'syntax.comment.not_allowed': '(',
   'syntax.comment.unterminated': '(',
   'syntax.domain.literal_invalid': '[',
-  'syntax.local.unquoted_space': ' ',
+  // A space, a tab, or the CR of a folded line.
+  'syntax.local.unquoted_space': ' \t\r',
 };
 
 describe('corpus', () => {
@@ -115,7 +116,7 @@ describe('corpus', () => {
 
     it('points failure indexes at the right character', () => {
       const misplaced = failures.filter(({ reason, index }) => {
-        const char = pointsAt[reason];
+        const chars = pointsAt[reason];
         return (
           index < 0 ||
           index >= address.length ||
@@ -123,7 +124,7 @@ describe('corpus', () => {
             index >= address.lastIndexOf('@')) ||
           (reason.startsWith('syntax.domain.') &&
             index <= address.indexOf('@')) ||
-          (char !== undefined && address[index] !== char)
+          (chars !== undefined && !chars.includes(address.charAt(index)))
         );
       });
       expect(misplaced).toEqual([]);
