@@ -1,6 +1,6 @@
 {
   "name": "@email-utils/validator-syntax",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "description": "Configurable email syntax validator.",
   "keywords": [
     "email",

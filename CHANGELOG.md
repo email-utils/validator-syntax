@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0-rc.3](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-09-30)
+
+
+### Features
+
+* **parser:** expose the resolved maxLength on SyntaxValidator ([#46](https://github.com/email-utils/validator-syntax/issues/46)) ([361fe3f](https://github.com/email-utils/validator-syntax/commit/361fe3f79990d355fe123080d499f68efac4dce0))
+
 ## [1.0.0-rc.2](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-09-30)
 
 
