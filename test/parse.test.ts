@@ -373,6 +373,54 @@ describe('options', () => {
   });
 });
 
+describe('SyntaxValidator.maxLength', () => {
+  it('is 512 by default, under every preset and override', () => {
+    const presets = ['practical', 'rfc5321', 'rfc5322', 'html5'] as const;
+    expect(createSyntaxValidator().maxLength).toBe(512);
+    for (const preset of presets) {
+      expect(createSyntaxValidator({ preset }).maxLength).toBe(512);
+    }
+    expect(createSyntaxValidator({ checkTld: false }).maxLength).toBe(512);
+    expect(createSyntaxValidator({ maxLength: undefined }).maxLength).toBe(512);
+  });
+
+  it('is the limit the validator applies', () => {
+    const validator = createSyntaxValidator({ ...rfc5322, maxLength: 8 });
+    expect(validator.maxLength).toBe(8);
+    expect(validator.isValid('ab@x.com')).toBe(true);
+    expect(validator.parse('abc@x.com')).toMatchObject({
+      reason: 'syntax.address.too_long',
+    });
+    expect(createSyntaxValidator({ maxLength: 2048 }).maxLength).toBe(2048);
+  });
+
+  it('is Infinity for no limit', () => {
+    expect(createSyntaxValidator({ maxLength: Infinity }).maxLength).toBe(
+      Infinity,
+    );
+  });
+
+  it('is a plain data property that can’t be reassigned', () => {
+    const validator = createSyntaxValidator({ maxLength: 8 });
+    expect(Object.isFrozen(validator)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(validator, 'maxLength')).toEqual({
+      value: 8,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    });
+    // Strict-mode code throws; elsewhere the assignment is ignored.
+    expect(() => {
+      (validator as { maxLength: number }).maxLength = 1024;
+    }).toThrow(TypeError);
+    expect(Reflect.set(validator, 'maxLength', 1024)).toBe(false);
+    expect(validator.maxLength).toBe(8);
+    expect(validator.parse('abc@x.com')).toMatchObject({
+      reason: 'syntax.address.too_long',
+    });
+  });
+});
+
 describe('allowUnicode', () => {
   const unicode = { allowUnicode: true };
 

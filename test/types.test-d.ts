@@ -201,6 +201,14 @@ describe('the entry points', () => {
       (email: string) => boolean
     >();
   });
+
+  it('give a validator its maxLength, read-only', () => {
+    expectTypeOf<SyntaxValidator['maxLength']>().toEqualTypeOf<number>();
+    const validator = createSyntaxValidator();
+    expectTypeOf(validator.maxLength).toEqualTypeOf<number>();
+    // @ts-expect-error: maxLength is read-only
+    validator.maxLength = 1024;
+  });
 });
 
 describe('previewSyntaxOptions', () => {
