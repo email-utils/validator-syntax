@@ -121,6 +121,17 @@ describe('parseAddress', () => {
       });
     });
 
+    it.each([
+      ['a tab', 'a\t"b"@x.com'],
+      ['a folded line', 'a\r\n "b"@x.com'],
+    ])('points %s between words at its first character', (_, address) => {
+      expect(parseAddress(address, rfc5322)).toMatchObject({
+        reason: 'syntax.local.unquoted_space',
+        message: 'The local part has whitespace outside quotes',
+        index: 1,
+      });
+    });
+
     it('points whitespace between domain labels at the whitespace', () => {
       expect(parseAddress('a@b c.com', rfc5322)).toMatchObject({
         reason: 'syntax.domain.invalid_char',

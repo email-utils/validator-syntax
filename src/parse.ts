@@ -54,7 +54,7 @@ const messages: Readonly<Record<ReasonCode, string>> = {
   'syntax.local.too_long': 'The local part is longer than 64 characters',
   'syntax.local.invalid_char': 'The local part has a character it can’t hold',
   'syntax.local.consecutive_dots': 'The local part has two dots in a row',
-  'syntax.local.unquoted_space': 'The local part has a space outside quotes',
+  'syntax.local.unquoted_space': 'The local part has whitespace outside quotes',
   'syntax.domain.empty': 'Nothing comes after the @',
   'syntax.domain.no_dot': 'The domain has no dot',
   'syntax.domain.label_invalid':
