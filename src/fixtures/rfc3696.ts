@@ -5,6 +5,24 @@
 // printed.
 import { type SyntaxFixture, everywhere, fail, rfcOnly, valid } from './types';
 
+/**
+ * RFC 3696's examples, as corrected by its erratum 246.
+ *
+ * @example
+ * ```ts
+ * import { rfc3696Fixtures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * // Printed as valid, but a backslash escape needs a quoted string.
+ * rfc3696Fixtures
+ *   .filter((fixture) => !fixture.expected.rfc5322.ok)
+ *   .map((fixture) => fixture.address);
+ * // => [
+ * //   'Abc\\@def@example.com',
+ * //   'Fred\\ Bloggs@example.com',
+ * //   'Joe.\\\\Blow@example.com',
+ * // ]
+ * ```
+ */
 export const rfc3696Fixtures: readonly SyntaxFixture[] = [
   // Printed as valid; invalid per erratum 246.
   {

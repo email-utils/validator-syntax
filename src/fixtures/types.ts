@@ -3,8 +3,21 @@
 // consistency tests, and the docs' support matrix.
 import type { ReasonCode } from '../result';
 
+/** A preset's name: the same union as the root entry's `Preset`. */
 export type Preset = 'practical' | 'rfc5321' | 'rfc5322' | 'html5';
 
+/**
+ * Every preset, in the order the support matrix's columns take.
+ *
+ * @example
+ * ```ts
+ * import { isValidSyntax } from '@email-utils/validator-syntax';
+ * import { presets } from '@email-utils/validator-syntax/fixtures';
+ *
+ * presets.filter((preset) => isValidSyntax('ada@localhost', { preset }));
+ * // => ['html5']
+ * ```
+ */
 export const presets: readonly Preset[] = [
   'practical',
   'rfc5321',
@@ -15,6 +28,10 @@ export const presets: readonly Preset[] = [
 /** The `syntax.*` codes from the reason-code catalogue (meta docs/api/reason-codes.md). */
 export type SyntaxReasonCode = ReasonCode;
 
+/**
+ * A fixture's result under one preset: the `ok`, `reason`, and `index` of
+ * what `parseAddress` returns, without the value or message.
+ */
 export type Expected =
   { ok: true } | { ok: false; reason: SyntaxReasonCode; index?: number };
 
@@ -41,7 +58,17 @@ export type SyntaxFeature =
   | 'dotless-domain'
   | 'unknown-tld';
 
-/** The support matrix's rows, in order, with each feature's label. */
+/**
+ * The support matrix's rows, in order, with each feature's label.
+ *
+ * @example
+ * ```ts
+ * import { syntaxFeatures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * syntaxFeatures[0];
+ * // => { feature: 'dot-atom', label: 'Letters, digits, and single dots' }
+ * ```
+ */
 export const syntaxFeatures: readonly {
   feature: SyntaxFeature;
   label: string;
@@ -73,6 +100,7 @@ export const syntaxFeatures: readonly {
   { feature: 'unknown-tld', label: 'TLD outside the IANA set' },
 ];
 
+/** An address, and what each preset makes of it. */
 export interface SyntaxFixture {
   address: string;
   description: string;
@@ -82,6 +110,7 @@ export interface SyntaxFixture {
   feature?: SyntaxFeature;
 }
 
+/** A fixture from the 0.0.1 test suite, with what 0.0.1 made of it. */
 export interface LegacyFixture extends SyntaxFixture {
   /** What 0.0.1's `validate()` returned with its default config. */
   legacy: boolean;
@@ -93,6 +122,7 @@ export interface LegacyFixture extends SyntaxFixture {
   flipped?: string;
 }
 
+/** A fixture from isemail's test set. */
 export interface IsemailFixture extends SyntaxFixture {
   /** The test's `id` in isemail's tests.xml. */
   isemail: number;

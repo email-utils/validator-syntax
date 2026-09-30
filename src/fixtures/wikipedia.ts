@@ -11,6 +11,22 @@ import {
   valid,
 } from './types';
 
+/**
+ * The examples from Wikipedia's "Email address" article.
+ *
+ * @example
+ * ```ts
+ * import { wikipediaFixtures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * wikipediaFixtures.find((fixture) => fixture.address === 'admin@example');
+ * // => {
+ * //   expected: {
+ * //     practical: { ok: false, reason: 'syntax.domain.no_dot' },
+ * //     html5: { ok: true },
+ * //   },
+ * // }
+ * ```
+ */
 export const wikipediaFixtures: readonly SyntaxFixture[] = [
   // Listed as valid.
   {

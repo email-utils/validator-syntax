@@ -41,6 +41,20 @@ function quotedLocal(rfc: Expected): Record<Preset, Expected> {
 const longLabel =
   'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghikl';
 
+/**
+ * Dominic Sayers' is_email tests, each tagged with its `id` in tests.xml.
+ *
+ * @example
+ * ```ts
+ * import { isemailFixtures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * isemailFixtures.find((fixture) => fixture.isemail === 5);
+ * // => {
+ * //   address: 'test@io',
+ * //   expected: { practical: { ok: false, reason: 'syntax.domain.no_dot' } },
+ * // }
+ * ```
+ */
 export const isemailFixtures: readonly IsemailFixture[] = [
   // The @ separator and the plain parts.
   {

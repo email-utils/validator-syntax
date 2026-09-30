@@ -23,12 +23,12 @@ export type { ReasonCode, Result } from './result';
  *
  * @example
  * ```ts
- * const result = parseAddress('ada.lovelace@example.co.uk');
- * if (result.ok) {
- *   result.value.tld; // 'uk'
- * } else {
- *   result.reason; // e.g. 'syntax.local.invalid_char'
- * }
+ * import { parseAddress } from '@email-utils/validator-syntax';
+ *
+ * parseAddress('ada.lovelace@example.co.uk');
+ * // => { ok: true, value: { local: 'ada.lovelace', tld: 'uk' } }
+ * parseAddress('ada..lovelace@example.com');
+ * // => { ok: false, reason: 'syntax.local.consecutive_dots', index: 4 }
  * ```
  *
  * @throws TypeError when `email` isn't a string, or `options` are malformed.
@@ -45,9 +45,11 @@ export function parseAddress(
  *
  * @example
  * ```ts
- * isValidSyntax('ada@example.com'); // true
- * isValidSyntax('"ada"@example.com'); // false
- * isValidSyntax('"ada"@example.com', { preset: 'rfc5321' }); // true
+ * import { isValidSyntax } from '@email-utils/validator-syntax';
+ *
+ * isValidSyntax('ada@example.com'); // => true
+ * isValidSyntax('"ada"@example.com'); // => false
+ * isValidSyntax('"ada"@example.com', { preset: 'rfc5321' }); // => true
  * ```
  *
  * @throws TypeError when `email` isn't a string, or `options` are malformed.
@@ -68,9 +70,14 @@ export interface SyntaxValidator {
  *
  * @example
  * ```ts
+ * import { createSyntaxValidator } from '@email-utils/validator-syntax';
+ *
  * const strict = createSyntaxValidator({ preset: 'rfc5321' });
- * strict.parse('a b@example.com'); // { ok: false, reason: 'syntax.local.unquoted_space', … }
- * strict.isValid('"a b"@example.com'); // true
+ * strict.parse('a b@example.com');
+ * // => { ok: false, reason: 'syntax.local.unquoted_space', index: 1 }
+ * strict.isValid('"a b"@example.com'); // => true
+ * createSyntaxValidator({ preset: 'html5', allowComments: true });
+ * // => throws TypeError
  * ```
  *
  * @throws TypeError when `options` are malformed.
