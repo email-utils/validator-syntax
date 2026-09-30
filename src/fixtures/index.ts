@@ -78,7 +78,20 @@ export {
   wikipediaFixtures,
 };
 
-/** Every fixture from every source, each address once. */
+/**
+ * Every fixture from every source, each address once.
+ *
+ * @example
+ * ```ts
+ * import { isValidSyntax } from '@email-utils/validator-syntax';
+ * import { syntaxFixtures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * syntaxFixtures.every(
+ *   ({ address, expected }) =>
+ *     isValidSyntax(address, { preset: 'rfc5321' }) === expected.rfc5321.ok,
+ * ); // => true
+ * ```
+ */
 export const syntaxFixtures: readonly SyntaxFixture[] = [
   ...legacyFixtures,
   ...isemailFixtures,
@@ -86,8 +99,10 @@ export const syntaxFixtures: readonly SyntaxFixture[] = [
   ...rfc3696Fixtures,
 ];
 
+/** Whether a preset accepts all, some, or none of a feature's fixtures. */
 export type Support = 'yes' | 'partial' | 'no';
 
+/** A row of {@link supportMatrix}: one feature, and each preset's support. */
 export interface SupportRow {
   feature: SyntaxFeature;
   label: string;
@@ -97,7 +112,18 @@ export interface SupportRow {
   fixtures: readonly SyntaxFixture[];
 }
 
-/** The docs' support matrix: one row per feature, one column per preset. */
+/**
+ * The docs' support matrix: one row per feature, one column per preset.
+ *
+ * @example
+ * ```ts
+ * import { supportMatrix } from '@email-utils/validator-syntax/fixtures';
+ *
+ * const row = supportMatrix().find(({ feature }) => feature === 'quoted-local');
+ * row?.support;
+ * // => { practical: 'no', rfc5321: 'yes', rfc5322: 'yes', html5: 'no' }
+ * ```
+ */
 export function supportMatrix(): SupportRow[] {
   return syntaxFeatures.map(({ feature, label }) => {
     const fixtures = syntaxFixtures.filter(
@@ -160,9 +186,16 @@ export interface SyntaxPreview {
  *
  * @example
  * ```ts
- * const { valid, invalid } = previewSyntaxOptions({ checkTld: false });
- * valid.filter((entry) => entry.changed); // now accepted, e.g. example@s.example
- * previewSyntaxOptions({ preset: 'html5' }, ['ada@localhost']).valid; // [{ address: 'ada@localhost', changed: false }]
+ * import { previewSyntaxOptions } from '@email-utils/validator-syntax/fixtures';
+ *
+ * const { valid } = previewSyntaxOptions({ checkTld: false });
+ * valid.find((entry) => entry.address === 'example@s.example');
+ * // => { changed: true }
+ * previewSyntaxOptions({ preset: 'html5' }, ['ada@localhost', 'ada@example..com']);
+ * // => {
+ * //   valid: [{ address: 'ada@localhost', changed: false }],
+ * //   invalid: [{ address: 'ada@example..com', reason: 'syntax.domain.label_invalid' }],
+ * // }
  * ```
  *
  * @param addresses - The addresses to judge; `syntaxFixtures` by default.

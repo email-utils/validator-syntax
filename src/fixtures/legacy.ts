@@ -32,6 +32,21 @@ function withUppercase(fixture: LegacyFixture): LegacyFixture[] {
   ];
 }
 
+/**
+ * Every address the 0.0.1 test suite checked, with what 0.0.1 returned.
+ *
+ * @example
+ * ```ts
+ * import { legacyFixtures } from '@email-utils/validator-syntax/fixtures';
+ *
+ * // The addresses v1's default preset judges differently from 0.0.1.
+ * const flipped = legacyFixtures.filter(
+ *   (fixture) => fixture.flipped !== undefined,
+ * );
+ * flipped.every((fixture) => fixture.legacy !== fixture.expected.practical.ok);
+ * // => true
+ * ```
+ */
 export const legacyFixtures: readonly LegacyFixture[] = [
   // Plain dot-atom addresses.
   ...withUppercase({
