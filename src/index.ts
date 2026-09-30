@@ -64,11 +64,36 @@ export function isValidSyntax(email: string, options?: SyntaxOptions): boolean {
 export interface SyntaxValidator {
   parse(email: string): Result<ParsedAddress>;
   isValid(email: string): boolean;
+  /**
+   * The `maxLength` this validator applies: the one in its options, or the
+   * default, 512. `Infinity` when there's no limit.
+   *
+   * @remarks
+   * For a dependent that trims or otherwise pre-processes input before
+   * parsing it: checking the raw input's length against this first rejects
+   * oversized input before any of that work, and padding can't carry input
+   * past the limit. The validator is frozen, so this can't be reassigned.
+   *
+   * @example
+   * ```ts
+   * import { createSyntaxValidator } from '@email-utils/validator-syntax';
+   *
+   * createSyntaxValidator().maxLength; // => 512
+   * createSyntaxValidator({ maxLength: 1024 }).maxLength; // => 1024
+   *
+   * const validator = createSyntaxValidator();
+   * const padded = `${' '.repeat(600)}ada@example.com`;
+   * padded.length > validator.maxLength; // => true
+   * validator.isValid(padded.trim()); // => true
+   * ```
+   */
+  readonly maxLength: number;
 }
 
 /**
  * Binds `options` once, checking them up front, and returns
- * {@link parseAddress} and {@link isValidSyntax} with them applied.
+ * {@link parseAddress} and {@link isValidSyntax} with them applied, and the
+ * `maxLength` they resolve to. The validator is frozen.
  *
  * @example
  * ```ts
@@ -88,8 +113,9 @@ export function createSyntaxValidator(
   options?: SyntaxOptions,
 ): SyntaxValidator {
   const rules = resolve(options);
-  return {
+  return Object.freeze<SyntaxValidator>({
     parse: (email) => parse(email, rules),
     isValid: (email) => parse(email, rules).ok,
-  };
+    maxLength: rules.maxLength,
+  });
 }
