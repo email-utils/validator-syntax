@@ -6,6 +6,10 @@ const hexGroup = /^[\dA-Fa-f]{1,4}$/;
 
 /** An IPv4 address: four dot-separated decimal octets, each 0–255. */
 export function isIPv4(text: string): boolean {
+  // `255.255.255.255` is the longest, and splitting costs more than this.
+  if (text.length > 15) {
+    return false;
+  }
   const parts = text.split('.');
   return (
     parts.length === 4 &&
@@ -19,6 +23,11 @@ export function isIPv4(text: string): boolean {
  * place of the last two groups.
  */
 export function isIPv6(text: string): boolean {
+  // Eight groups of four, or six and an IPv4 address, is the longest: 45
+  // characters. Splitting a longer one would cost more than this.
+  if (text.length > 45) {
+    return false;
+  }
   const colon = text.lastIndexOf(':');
   const tail = text.slice(colon + 1);
   if (tail.includes('.')) {

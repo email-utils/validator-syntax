@@ -2,7 +2,7 @@
 // each address passes and why not: the parsed value, and the rules the
 // corpus has no fixture for. corpus.test.ts runs the corpus itself.
 import { describe, expect, it } from 'vitest';
-import { parseAddress } from '../src';
+import { createSyntaxValidator, parseAddress } from '../src';
 
 const rfc5321 = { preset: 'rfc5321' } as const;
 const rfc5322 = { preset: 'rfc5322' } as const;
@@ -262,6 +262,78 @@ describe('options', () => {
     expect(parseAddress(' a @x.com', options).ok).toBe(true);
   });
 
+  describe('maxLength', () => {
+    // 512 characters, all but the 7 of `@x.com` and the parentheses a
+    // comment, which the address caps don't count.
+    const at512 = `(${'c'.repeat(503)})a@x.com`;
+
+    it('fails longer input as too long, before scanning it', () => {
+      expect(parseAddress(at512, rfc5322).ok).toBe(true);
+      expect(parseAddress(`(c${at512.slice(1)}`, rfc5322)).toEqual({
+        ok: false,
+        reason: 'syntax.address.too_long',
+        message: expect.any(String),
+      });
+      // An @ that isn't there, or a bad character at the start, would fail
+      // first if the input were scanned.
+      expect(parseAddress('"'.repeat(513))).toMatchObject({
+        reason: 'syntax.address.too_long',
+      });
+    });
+
+    it('defaults to 512 under every preset', () => {
+      for (const preset of ['practical', 'rfc5321', 'html5'] as const) {
+        expect(parseAddress('a'.repeat(512), { preset })).toMatchObject({
+          reason: 'syntax.address.no_at',
+        });
+        expect(parseAddress('a'.repeat(513), { preset })).toMatchObject({
+          reason: 'syntax.address.too_long',
+        });
+      }
+    });
+
+    it('counts UTF-16 code units', () => {
+      // 256 emoji are 512 code units.
+      const emoji = '😀'.repeat(256);
+      expect(parseAddress(emoji, { allowUnicode: true })).toMatchObject({
+        reason: 'syntax.address.no_at',
+      });
+      expect(parseAddress(`${emoji}@`, { allowUnicode: true })).toMatchObject({
+        reason: 'syntax.address.too_long',
+      });
+    });
+
+    it('takes a custom value, lower or higher', () => {
+      expect(parseAddress('ab@x.com', { maxLength: 8 }).ok).toBe(true);
+      expect(parseAddress('abc@x.com', { maxLength: 8 })).toMatchObject({
+        reason: 'syntax.address.too_long',
+      });
+      const at1024 = `(${'c'.repeat(1015)})a@x.com`;
+      expect(parseAddress(at1024, { ...rfc5322, maxLength: 1024 }).ok).toBe(
+        true,
+      );
+      expect(
+        createSyntaxValidator({ ...rfc5322, maxLength: 1023 }).parse(at1024),
+      ).toMatchObject({ reason: 'syntax.address.too_long' });
+    });
+
+    it('takes Infinity for no limit', () => {
+      const long = `(${'c'.repeat(100_000)})a@x.com`;
+      expect(parseAddress(long, rfc5322)).toMatchObject({
+        reason: 'syntax.address.too_long',
+      });
+      expect(parseAddress(long, { ...rfc5322, maxLength: Infinity }).ok).toBe(
+        true,
+      );
+    });
+
+    it('treats undefined as unset', () => {
+      expect(
+        parseAddress('a'.repeat(513), { maxLength: undefined }),
+      ).toMatchObject({ reason: 'syntax.address.too_long' });
+    });
+  });
+
   it('treats an undefined override as unset', () => {
     expect(parseAddress('a@x.com', { checkTld: undefined }).ok).toBe(true);
   });
@@ -277,6 +349,12 @@ describe('options', () => {
     ['Unicode under html5', { preset: 'html5', allowUnicode: true }],
     ['IDNs under html5', { preset: 'html5', allowIdn: true }],
     ['IP literals under html5', { preset: 'html5', allowIpLiteral: true }],
+    ['a maxLength of 0', { maxLength: 0 }],
+    ['a negative maxLength', { maxLength: -1 }],
+    ['a fractional maxLength', { maxLength: 1.5 }],
+    ['a NaN maxLength', { maxLength: Number.NaN }],
+    ['a maxLength of -Infinity', { maxLength: -Infinity }],
+    ['a string maxLength', { maxLength: '512' }],
   ])('throws TypeError on %s', (_, options) => {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     expect(() => parseAddress('a@x.com', options as never)).toThrow(TypeError);
@@ -428,6 +506,16 @@ describe('allowIdn', () => {
     // 57 ü's make a 63-character A-label, and 58 make 64.
     expect(parseAddress(`a@${'ü'.repeat(57)}.de`, idn).ok).toBe(true);
     expect(parseAddress(`a@${'ü'.repeat(58)}.de`, idn)).toMatchObject({
+      reason: 'syntax.domain.label_invalid',
+      index: 2,
+    });
+  });
+
+  it('fails a U-label of more than 63 code points before converting it', () => {
+    // 40 emoji are 80 code units but 40 code points, and a 47-character
+    // A-label.
+    expect(parseAddress(`a@${'😀'.repeat(40)}.de`, idn).ok).toBe(true);
+    expect(parseAddress(`a@b${'ü'.repeat(63)}.de`, idn)).toMatchObject({
       reason: 'syntax.domain.label_invalid',
       index: 2,
     });

@@ -114,7 +114,7 @@ describe('SyntaxOptions', () => {
     expectTypeOf<FixturePreset>().toEqualTypeOf<Preset>();
   });
 
-  it('takes a preset and boolean overrides, each optional', () => {
+  it('takes a preset, boolean overrides, and a maxLength, each optional', () => {
     expectTypeOf<SyntaxOptions>().toEqualTypeOf<{
       preset?: Preset | undefined;
       checkTld?: boolean | undefined;
@@ -123,6 +123,7 @@ describe('SyntaxOptions', () => {
       allowUnicode?: boolean | undefined;
       allowIdn?: boolean | undefined;
       allowIpLiteral?: boolean | undefined;
+      maxLength?: number | undefined;
     }>();
   });
 
@@ -138,6 +139,7 @@ describe('SyntaxOptions', () => {
       allowUnicode: true,
       allowIdn: true,
       allowIpLiteral: false,
+      maxLength: Infinity,
     });
     expectTypeOf(parseAddress).toBeCallableWith('a@x.com', {
       preset: undefined,
@@ -156,8 +158,12 @@ describe('SyntaxOptions', () => {
     expectTypeOf(parseAddress).toBeCallableWith('a@x.com', { checkTld: 'yes' });
     // @ts-expect-error: overrides are booleans
     expectTypeOf(isValidSyntax).toBeCallableWith('a@x.com', { allowNoTld: 1 });
+    // @ts-expect-error: maxLength is a number
+    expectTypeOf(parseAddress).toBeCallableWith('a@x.com', { maxLength: '9' });
     // @ts-expect-error: options are an object or undefined
     expectTypeOf(createSyntaxValidator).toBeCallableWith(null);
+    // @ts-expect-error: maxLength is a number
+    expectTypeOf(parseAddress).toBeCallableWith('a@x.com', { maxLength: '9' });
     // @ts-expect-error: options are an object or undefined
     expectTypeOf(previewSyntaxOptions).toBeCallableWith('practical');
   });

@@ -3,8 +3,15 @@
 // scanned left to right against the preset's rules, and the lengths, the
 // dot, and the TLD are checked last. The first failure wins, in the order
 // the corpus sets out (src/fixtures/index.ts).
-import { inClass, isWhitespace, nonAsciiAt, utf8Length } from './chars';
-import { toALabel } from './idn';
+import {
+  codeAt,
+  codePoints,
+  inClass,
+  isWhitespace,
+  nonAsciiAt,
+  utf8Length,
+} from './chars';
+import { toALabels } from './idn';
 import { isAddressLiteral } from './ip';
 import type { Rules } from './options';
 import type { ReasonCode, Result } from './result';
@@ -95,8 +102,9 @@ export function findAt(email: string, rules: Readonly<Rules>): number {
   let domainStart = false;
   let depth = 0;
   let at = -1;
-  for (let i = 0; i < email.length; i++) {
-    const code = email.charCodeAt(i);
+  const end = email.length;
+  for (let i = 0; i < end; i++) {
+    const code = codeAt(email, i);
     if (state === NORMAL) {
       if (code === 64 /* @ */) {
         at = i;
@@ -143,6 +151,11 @@ export function parse(
   }
   if (email === '') {
     return fail('syntax.address.empty');
+  }
+  // Before anything is scanned, so input of any size is rejected in
+  // constant time (validator-syntax#15).
+  if (email.length > rules.maxLength) {
+    return fail('syntax.address.too_long');
   }
   const at = findAt(email, rules);
   if (at < 0) {
@@ -211,7 +224,7 @@ function scanLocal(
 
   let i = 0;
   while (i < at) {
-    const code = email.charCodeAt(i);
+    const code = codeAt(email, i);
     const quote = code === 34 && rules.quotes && (rules.obs || i === 0);
     const atom = inClass(code, rules.local);
     if (quote || atom || (rules.unicode && nonAsciiAt(email, i, at) > 0)) {
@@ -232,14 +245,14 @@ function scanLocal(
         closed = !rules.obs;
       } else {
         next = atom ? i + 1 : i;
-        while (next < at && inClass(email.charCodeAt(next), rules.local)) {
+        while (next < at && inClass(codeAt(email, next), rules.local)) {
           next++;
         }
         if (rules.unicode) {
           next = skipUnicode(email, next, at, rules.local);
         }
       }
-      local += unfold(email.slice(i, next));
+      local += unfold(email, i, next);
       words++;
       afterWord = true;
       dot = -1;
@@ -321,6 +334,90 @@ function scanDomain(
   rules: Readonly<Rules>,
   comments: AddressComment[],
 ): Domain | Failure {
+  const uLabels: number[] = [];
+  const domain = scanLabels(email, at, rules, comments, uLabels);
+  if (uLabels.length === 0) {
+    return domain;
+  }
+  // Each U-label was checked in the scan as it ended, so a failure among
+  // them comes before any failure the scan found later.
+  const growth = checkULabels(email, uLabels, rules.domainCap);
+  if (typeof growth !== 'number') {
+    return growth;
+  }
+  if (!('reason' in domain)) {
+    domain.size += growth;
+  }
+  return domain;
+}
+
+/**
+ * Checks the U-labels at `spans`, triples of start, end, and the length of
+ * the domain before it, as A-labels: each must convert, and pass the
+ * hostname rules as its A-label. Returns the first failure, or what the
+ * A-labels add to the domain's length: `Infinity` once it's past `cap`.
+ *
+ * @remarks
+ * The U-labels are converted a few at a time, about 32 characters of them
+ * in each URL: one URL costs about as much as one label alone, and a small
+ * batch wastes little past the first failure or past `cap`. Once the
+ * A-labels take the domain past `cap`, the rest aren't checked: the domain
+ * fails as too long, unless the scan found something earlier. Punycode's
+ * cost grows with the square of a label's length, so converting labels that
+ * can't change the outcome would cost the most on input built to be slow
+ * (validator-syntax#15).
+ */
+function checkULabels(
+  email: string,
+  spans: readonly number[],
+  cap: number,
+): number | Failure {
+  let growth = 0;
+  for (let first = 0; first < spans.length;) {
+    const chunk: string[] = [];
+    let written = 0;
+    let next = first;
+    while (next < spans.length && written < 32) {
+      const label = email.slice(spans[next], spans[next + 1]);
+      chunk.push(label);
+      written += label.length;
+      next += 3;
+    }
+    const aLabels = toALabels(chunk);
+    for (let k = 0; k < chunk.length; k++) {
+      const start = spans[first + 3 * k]!;
+      const end = spans[first + 3 * k + 1]!;
+      const aLabel = aLabels[k];
+      if (aLabel === undefined) {
+        return fail('syntax.domain.label_invalid', start);
+      }
+      const bad = checkLabel(email, start, end, aLabel.length);
+      if (bad >= 0) {
+        return fail('syntax.domain.label_invalid', bad);
+      }
+      growth += aLabel.length - (end - start);
+      // The domain up to the end of this label, as A-labels.
+      if (spans[first + 3 * k + 2]! + (end - start) + growth > cap) {
+        return Infinity;
+      }
+    }
+    first = next;
+  }
+  return growth;
+}
+
+/**
+ * The scan behind {@link scanDomain}, which leaves the U-labels it finds in
+ * `uLabels`, as triples of start, end, and the domain's length before it,
+ * unchecked but for their length.
+ */
+function scanLabels(
+  email: string,
+  at: number,
+  rules: Readonly<Rules>,
+  comments: AddressComment[],
+  uLabels: number[],
+): Domain | Failure {
   const end = email.length;
   let domain = '';
   let labels = 0;
@@ -331,12 +428,10 @@ function scanDomain(
   let edge = -1;
   let trailing = comments.length;
   let tld = '';
-  // What converting the U-labels to A-labels adds to the length.
-  let growth = 0;
 
   let i = at + 1;
   while (i < end) {
-    const code = email.charCodeAt(i);
+    const code = codeAt(email, i);
     const opensLiteral = code === 91 && rules.literals && labels === 0;
     const ldh = inClass(code, rules.domain);
     if (opensLiteral || ldh || (rules.idn && nonAsciiAt(email, i, end) > 0)) {
@@ -357,29 +452,35 @@ function scanDomain(
         literal = true;
       } else {
         next = ldh ? i + 1 : i;
-        while (next < end && inClass(email.charCodeAt(next), rules.domain)) {
+        while (next < end && inClass(codeAt(email, next), rules.domain)) {
           next++;
         }
         const ascii = next;
         if (rules.idn) {
           next = skipUnicode(email, next, end, rules.domain);
         }
-        let size = next - i;
-        // The ASCII run stopped short, so the label is a U-label.
+        // The ASCII run stopped short, so the label is a U-label. It's
+        // checked with the others after the scan, converted in one go
+        // (checkULabels).
         if (next > ascii) {
-          const aLabel = toALabel(email.slice(i, next));
-          if (aLabel === undefined) {
+          // An A-label takes `xn--` and at least a character for each code
+          // point, so a U-label of more than 63 can't make one of 63. Only
+          // text UTS #46 shrinks, which IDNA2008 doesn't allow in a U-label
+          // (decomposed characters, or ones it drops), could. Failing it
+          // here keeps Punycode, whose cost grows with the square of a
+          // label's length, to short labels (validator-syntax#15).
+          if (codePoints(email, i, next) > 63) {
             return fail('syntax.domain.label_invalid', i);
           }
-          size = aLabel.length;
-          growth += size - (next - i);
-        }
-        const bad = checkLabel(email, i, next, size);
-        if (bad >= 0) {
-          return fail('syntax.domain.label_invalid', bad);
+          uLabels.push(i, next, domain.length);
+        } else {
+          const bad = checkLabel(email, i, next, next - i);
+          if (bad >= 0) {
+            return fail('syntax.domain.label_invalid', bad);
+          }
         }
       }
-      tld = unfold(email.slice(i, next));
+      tld = unfold(email, i, next);
       domain += tld;
       labels++;
       afterLabel = true;
@@ -440,7 +541,7 @@ function scanDomain(
     return fail('syntax.domain.label_invalid', dot);
   }
   settle(comments, trailing, 'after-domain');
-  const size = domain.length + growth;
+  const size = domain.length;
   return literal || labels === 1
     ? { domain, literal, size }
     : { domain, tld, literal, size };
@@ -459,7 +560,7 @@ function skipUnicode(
   let width = i < end ? nonAsciiAt(email, i, end) : 0;
   while (width > 0) {
     i += width;
-    while (i < end && inClass(email.charCodeAt(i), flag)) {
+    while (i < end && inClass(codeAt(email, i), flag)) {
       i++;
     }
     width = i < end ? nonAsciiAt(email, i, end) : 0;
@@ -478,13 +579,13 @@ function checkLabel(
   end: number,
   size: number,
 ): number {
-  if (email.charCodeAt(start) === 45 /* - */) {
+  if (codeAt(email, start) === 45 /* - */) {
     return start;
   }
   if (size > 63) {
     return start;
   }
-  return email.charCodeAt(end - 1) === 45 ? end - 1 : -1;
+  return codeAt(email, end - 1) === 45 ? end - 1 : -1;
 }
 
 /** Marks the comments from `from` on, which no word follows, as trailing. */
@@ -501,9 +602,18 @@ function settle(
   }
 }
 
-/** Removes the CRLFs of folding whitespace, keeping the space or tab after. */
-function unfold(text: string): string {
-  return text.includes('\r') ? text.replaceAll('\r\n', '') : text;
+// Called through the builtins, not as methods, for the reason codeAt is
+// (src/chars.ts): these run for every word and label.
+// oxlint-disable-next-line typescript/unbound-method -- only ever called with `.call`
+const { indexOf, slice } = String.prototype;
+
+/**
+ * `email` from `start` to `end`, without the CRLFs of folding whitespace,
+ * keeping the space or tab after each.
+ */
+function unfold(email: string, start: number, end: number): string {
+  const text = slice.call(email, start, end);
+  return indexOf.call(text, '\r') < 0 ? text : text.replaceAll('\r\n', '');
 }
 
 // The skip functions below return the index after what they scanned, or
@@ -514,14 +624,14 @@ function unfold(text: string): string {
  * a space or tab after it. A lone CR or LF breaks it.
  */
 function skipSpace(email: string, i: number, end: number): number {
-  const code = email.charCodeAt(i);
+  const code = codeAt(email, i);
   if (code === 32 || code === 9) {
     return i + 1;
   }
   return code === 13 &&
     i + 2 < end &&
-    email.charCodeAt(i + 1) === 10 &&
-    (email.charCodeAt(i + 2) === 32 || email.charCodeAt(i + 2) === 9)
+    codeAt(email, i + 1) === 10 &&
+    (codeAt(email, i + 2) === 32 || codeAt(email, i + 2) === 9)
     ? i + 2
     : -1 - i;
 }
@@ -545,12 +655,12 @@ function skipQuoted(
 ): number {
   let i = open + 1;
   while (i < end) {
-    const code = email.charCodeAt(i);
+    const code = codeAt(email, i);
     if (code === 34) {
       return i + 1;
     }
     if (code === 92) {
-      if (!escapable(email.charCodeAt(i + 1), obs)) {
+      if (!escapable(codeAt(email, i + 1), obs)) {
         return -2 - i;
       }
       i += 2;
@@ -587,7 +697,7 @@ function skipComment(
   let depth = 1;
   let i = open + 1;
   while (i < end) {
-    const code = email.charCodeAt(i);
+    const code = codeAt(email, i);
     if (code === 40 /* ( */ || code === 41 /* ) */) {
       depth += code === 40 ? 1 : -1;
       i++;
@@ -598,7 +708,7 @@ function skipComment(
       if (i + 1 >= end) {
         break;
       }
-      if (!escapable(email.charCodeAt(i + 1), true)) {
+      if (!escapable(codeAt(email, i + 1), true)) {
         return -2 - i;
       }
       i += 2;
@@ -628,12 +738,12 @@ function skipComment(
 function skipLiteral(email: string, open: number, end: number): number {
   let i = open + 1;
   while (i < end) {
-    const code = email.charCodeAt(i);
+    const code = codeAt(email, i);
     if (code === 93 /* ] */) {
       return i + 1;
     }
     if (code === 92) {
-      if (i + 1 >= end || !escapable(email.charCodeAt(i + 1), true)) {
+      if (i + 1 >= end || !escapable(codeAt(email, i + 1), true)) {
         return -1;
       }
       i += 2;
