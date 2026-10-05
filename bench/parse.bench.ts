@@ -2,10 +2,11 @@ import { test } from 'vitest';
 import { syntaxFixtures } from '../src/fixtures';
 import { syntax } from './load';
 
-// Each bench's target sits beside it, from the issue that set it; meta#19's
-// are the v1 plan's. They're absolute, on Apple Silicon, so the nightly job
-// checks them against a 3× bound for its runner (meta#21); the PR bench leg
-// (meta#20) compares these names between base and head, so keep them
+// Each test gives its benches' targets in `task.meta.bench` (bench/meta.ts),
+// with the issue that set them; meta#19's are the v1 plan's. The absolute
+// ones are on Apple Silicon, so the nightly job checks them against a 3×
+// bound for its runner (meta#21); the PR bench leg (meta#20) checks the
+// ratio and compares these names between base and head, so keep them
 // stable.
 const { createSyntaxValidator, isValidSyntax, parseAddress } = syntax;
 
@@ -22,12 +23,20 @@ const longest = `${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.rep
 const megabyte = `${'a'.repeat((1 << 20) - 12)}@example.com`;
 const fourMegabytes = 'a'.repeat(1 << 22);
 
-test('parseAddress', async ({ bench }) => {
-  // ≤ 300 ns (validator-syntax#9).
+test('parseAddress', async ({ bench, task }) => {
+  task.meta.bench = {
+    'typical address': { p50: 300, source: 'validator-syntax#9' },
+    // The split finds no @.
+    'no @': { p50: 150, source: 'meta#19' },
+    'unknown TLD': { p50: 1000, source: 'meta#19' },
+    '254-character address': { p50: 2000, source: 'meta#19' },
+    // Past maxLength, at any size; test/budgets.test.ts gates it on every PR.
+    '1 MB input': { p50: 1000, source: 'validator-syntax#15' },
+    '4 MB input': { p50: 1000, source: 'validator-syntax#15' },
+  };
   await bench('typical address', () => {
     parseAddress(typical);
   }).run();
-  // ≤ 150 ns (meta#19): the split finds no @.
   await bench('no @', () => {
     parseAddress('first.last.example.com');
   }).run();
@@ -35,16 +44,12 @@ test('parseAddress', async ({ bench }) => {
   await bench('invalid address', () => {
     parseAddress('ada@example..com');
   }).run();
-  // ≤ 1 µs (meta#19).
   await bench('unknown TLD', () => {
     parseAddress('first.last@example.invalidtld');
   }).run();
-  // ≤ 2 µs (meta#19).
   await bench('254-character address', () => {
     parseAddress(longest);
   }).run();
-  // Past maxLength, ≤ 1 µs at any size (validator-syntax#15);
-  // test/budgets.test.ts gates it on every PR.
   await bench('1 MB input', () => {
     parseAddress(megabyte);
   }).run();
@@ -85,11 +90,19 @@ const worst: readonly [
   ],
 ];
 
-test('worst cases', async ({ bench }) => {
-  // ≤ 3 µs at 256 characters and ≤ 6 µs at 512, the default maxLength
-  // (validator-syntax#15).
+test('worst cases', async ({ bench, task }) => {
+  // ≤ 3 µs at 256 characters and ≤ 6 µs at 512, the default maxLength.
+  const targets = [
+    [256, 3000],
+    [512, 6000],
+  ] as const;
+  task.meta.bench = {};
   for (const [name, shape, options] of worst) {
-    for (const n of [256, 512]) {
+    for (const [n, p50] of targets) {
+      task.meta.bench[`${name}, ${n}`] = {
+        p50,
+        source: 'validator-syntax#15',
+      };
       const email = shape(n);
       // oxlint-disable-next-line no-await-in-loop -- one bench at a time
       await bench(`${name}, ${n}`, () => {
@@ -115,12 +128,21 @@ const worstIdn: readonly [string, (n: number) => string][] = [
   ['U-labels, the last invalid', (n) => fill('a@', 'ü.', 'x\u200Dy.de', n)],
 ];
 
-test('worst cases with allowIdn', async ({ bench }) => {
-  // ≤ 12 µs at 256 characters and ≤ 16 µs at 512 (validator-syntax#15):
-  // every U-label is scanned, and each converts through the URL parser
-  // until the domain passes its 253 cap.
+test('worst cases with allowIdn', async ({ bench, task }) => {
+  // ≤ 12 µs at 256 characters and ≤ 16 µs at 512: every U-label is scanned,
+  // and each converts through the URL parser until the domain passes its
+  // 253 cap.
+  const targets = [
+    [256, 12_000],
+    [512, 16_000],
+  ] as const;
+  task.meta.bench = {};
   for (const [name, shape] of worstIdn) {
-    for (const n of [256, 512]) {
+    for (const [n, p50] of targets) {
+      task.meta.bench[`${name}, ${n}`] = {
+        p50,
+        source: 'validator-syntax#15',
+      };
       const email = shape(n);
       // oxlint-disable-next-line no-await-in-loop -- one bench at a time
       await bench(`${name}, ${n}`, () => {
@@ -130,25 +152,31 @@ test('worst cases with allowIdn', async ({ bench }) => {
   }
 });
 
-test('presets', async ({ bench }) => {
-  // No target of its own; rfc5321's quoted strings.
+test('presets', async ({ bench, task }) => {
+  // rfc5321's quoted strings have no target of their own.
+  task.meta.bench = {
+    comments: { p50: 2000, source: 'meta#19' },
+    html5: { p50: 1000, source: 'meta#19' },
+  };
   await bench('quoted local part', () => {
     rfc5321.parse('"first last"@example.com');
   }).run();
-  // ≤ 2 µs for rfc5322 (meta#19).
   await bench('comments', () => {
     rfc5322.parse('(work)first.last@example.com(home)');
   }).run();
-  // ≤ 1 µs for html5 (meta#19).
   await bench('html5', () => {
     html5.parse(typical);
   }).run();
 });
 
-test('international options', async ({ bench }) => {
-  // ≤ 5 µs typical with the options on (validator-syntax#14). Its ≤ 5% on
-  // the default path with them off is a base-to-head comparison, the PR
-  // bench leg's (meta#20).
+test('international options', async ({ bench, task }) => {
+  // Typical, with the options on. validator-syntax#14's ≤ 5% on the default
+  // path with them off is a base-to-head comparison, the PR bench leg's
+  // (meta#20).
+  task.meta.bench = {
+    'Unicode local part': { p50: 5000, source: 'validator-syntax#14' },
+    'IDN domain': { p50: 5000, source: 'validator-syntax#14' },
+  };
   await bench('Unicode local part', () => {
     international.parse('josé.garcía@example.com');
   }).run();
@@ -157,16 +185,23 @@ test('international options', async ({ bench }) => {
   }).run();
 });
 
-test('isValidSyntax', async ({ bench }) => {
-  // ≤ 1 µs p50 and ≤ 5 µs p99 (meta#19).
+test('isValidSyntax', async ({ bench, task }) => {
+  task.meta.bench = {
+    'typical address': { p50: 1000, p99: 5000, source: 'meta#19' },
+  };
   await bench('typical address', () => {
     isValidSyntax(typical);
   }).run();
 });
 
-test('result object', async ({ bench }) => {
-  // parseAddress within 1.25× isValidSyntax (meta#19): the value and message
-  // cost little over the boolean.
+test('result object', async ({ bench, task }) => {
+  // The value and message cost little over the boolean.
+  task.meta.bench = {
+    parseAddress: {
+      within: { bench: 'isValidSyntax', max: 1.25 },
+      source: 'meta#19',
+    },
+  };
   await bench.compare(
     bench('parseAddress', () => {
       parseAddress(typical);
@@ -177,10 +212,12 @@ test('result object', async ({ bench }) => {
   );
 });
 
-test('corpus', async ({ bench }) => {
-  // 1,000 addresses in ≤ 1 ms (meta#19), so ≤ 287 µs for the corpus's 287.
+test('corpus', async ({ bench, task }) => {
+  // 1,000 addresses in ≤ 1 ms, so ≤ 287 µs for the corpus's 287.
   const addresses = syntaxFixtures.map(({ address }) => address);
+  task.meta.bench = {};
   for (const preset of ['practical', 'rfc5321', 'rfc5322', 'html5'] as const) {
+    task.meta.bench[preset] = { p50: 287_000, source: 'meta#19' };
     const validator = createSyntaxValidator({ preset });
     // oxlint-disable-next-line no-await-in-loop -- one bench at a time
     await bench(preset, () => {
