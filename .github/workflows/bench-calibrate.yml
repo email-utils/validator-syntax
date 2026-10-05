@@ -18,4 +18,4 @@ jobs:
   bench-calibrate:
     permissions:
       contents: read # check out the package and meta's scripts
-    uses: email-utils/meta/.github/workflows/bench-calibrate.yml@cde3dafbb145f72000b226ea90582d331ca9424b
+    uses: email-utils/meta/.github/workflows/bench-calibrate.yml@dbb73ab79aeed90be9c12215f9e2369b9d5d2915
