@@ -93,6 +93,28 @@ describe('parseAddress', () => {
     });
   });
 
+  it.each([
+    ['a space', 'a b@x.com'],
+    ['a tab', 'a\tb@x.com'],
+    ['a folded line', 'a\r\n b@x.com'],
+  ])('points %s in the local part at its first character', (_, address) => {
+    for (const preset of ['practical', 'rfc5321', 'html5'] as const) {
+      expect(parseAddress(address, { preset })).toMatchObject({
+        reason: 'syntax.local.unquoted_space',
+        index: 1,
+      });
+    }
+  });
+
+  it('fails a lone CR or LF in the local part as a bad character', () => {
+    for (const address of ['a\rb@x.com', 'a\nb@x.com', 'a\r\nb@x.com']) {
+      expect(parseAddress(address)).toMatchObject({
+        reason: 'syntax.local.invalid_char',
+        index: 1,
+      });
+    }
+  });
+
   it('fails an empty part once its comments are cut', () => {
     expect(parseAddress('(a)@x.com', rfc5322)).toMatchObject({
       reason: 'syntax.local.empty',
@@ -164,6 +186,28 @@ describe('parseAddress', () => {
           index: 2,
         });
       }
+    });
+
+    it('points an unclosed comment that hides the @ at its outer (', () => {
+      expect(parseAddress('a(b@example.com', rfc5322)).toEqual({
+        ok: false,
+        reason: 'syntax.comment.unterminated',
+        message: 'A comment is missing its closing parenthesis',
+        index: 1,
+      });
+      expect(parseAddress('a((b)c\\)@x.com', rfc5322)).toMatchObject({
+        reason: 'syntax.comment.unterminated',
+        index: 1,
+      });
+    });
+
+    it('fails an unclosed comment with no @ in it as having no @', () => {
+      expect(parseAddress('a(b', rfc5322)).toMatchObject({
+        reason: 'syntax.address.no_at',
+      });
+      expect(parseAddress('(a@b)c(d', rfc5322)).toMatchObject({
+        reason: 'syntax.address.no_at',
+      });
     });
 
     it('fails a quoted string with a fold that nothing follows', () => {

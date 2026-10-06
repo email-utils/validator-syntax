@@ -88,7 +88,8 @@ const LITERAL = 3;
 
 /**
  * Finds the `@` that splits `email`: the last one outside a quoted string,
- * comment, or domain literal, or -1 when there's none.
+ * comment, or domain literal. When there's none, returns `-2 - open` if the
+ * comment opening at `open` never closes and took an `@` with it, else -1.
  *
  * @remarks
  * A quoted string opens only at the start of a word, and a literal only at
@@ -101,6 +102,7 @@ export function findAt(email: string, rules: Readonly<Rules>): number {
   let wordStart = true;
   let domainStart = false;
   let depth = 0;
+  let open = -1;
   let at = -1;
   const end = email.length;
   for (let i = 0; i < end; i++) {
@@ -113,6 +115,7 @@ export function findAt(email: string, rules: Readonly<Rules>): number {
       } else if (code === 40 /* ( */ && rules.comments) {
         state = COMMENT;
         depth = 1;
+        open = i;
       } else if (!isWhitespace(code)) {
         if (code === 34 /* " */ && rules.quotes && wordStart) {
           state = QUOTED;
@@ -134,7 +137,10 @@ export function findAt(email: string, rules: Readonly<Rules>): number {
       state = NORMAL;
     }
   }
-  return at;
+  // With no @ found, any after `open` is inside the comment.
+  return at < 0 && state === COMMENT && indexOf.call(email, '@', open) > 0
+    ? -2 - open
+    : at;
 }
 
 /**
@@ -159,7 +165,9 @@ export function parse(
   }
   const at = findAt(email, rules);
   if (at < 0) {
-    return fail('syntax.address.no_at');
+    return at === -1
+      ? fail('syntax.address.no_at')
+      : fail('syntax.comment.unterminated', -2 - at);
   }
   const comments: AddressComment[] = [];
   const local = scanLocal(email, at, rules, comments);
@@ -300,7 +308,9 @@ function scanLocal(
       space = space < 0 ? i : space;
       i = next;
     } else {
-      return code === 32
+      // Folding whitespace is a space here, as it is between rfc5322's
+      // words; a lone CR or LF is just a bad character.
+      return isWhitespace(code) && skipSpace(email, i, at) >= 0
         ? fail('syntax.local.unquoted_space', i)
         : fail('syntax.local.invalid_char', i);
     }
