@@ -135,6 +135,18 @@ describe('parseAddress', () => {
     });
   });
 
+  it('checks the local part’s length before scanning the domain', () => {
+    expect(parseAddress(`${'a'.repeat(65)}@x!.com`)).toEqual({
+      ok: false,
+      reason: 'syntax.local.too_long',
+      message: expect.any(String),
+    });
+    expect(parseAddress(`${'a'.repeat(64)}@x!.com`)).toMatchObject({
+      reason: 'syntax.domain.invalid_char',
+      index: 66,
+    });
+  });
+
   describe('rfc5322', () => {
     it('points an unquoted space between words at the space', () => {
       expect(parseAddress('a "b"@x.com', rfc5322)).toMatchObject({
@@ -316,7 +328,7 @@ describe('options', () => {
       expect(parseAddress(`(c${at512.slice(1)}`, rfc5322)).toEqual({
         ok: false,
         reason: 'syntax.address.too_long',
-        message: expect.any(String),
+        message: 'The input is longer than the 512-character limit',
       });
       // An @ that isn't there, or a bad character at the start, would fail
       // first if the input were scanned.
@@ -349,8 +361,10 @@ describe('options', () => {
 
     it('takes a custom value, lower or higher', () => {
       expect(parseAddress('ab@x.com', { maxLength: 8 }).ok).toBe(true);
-      expect(parseAddress('abc@x.com', { maxLength: 8 })).toMatchObject({
+      expect(parseAddress('abc@x.com', { maxLength: 8 })).toEqual({
+        ok: false,
         reason: 'syntax.address.too_long',
+        message: 'The input is longer than the 8-character limit',
       });
       const at1024 = `(${'c'.repeat(1015)})a@x.com`;
       expect(parseAddress(at1024, { ...rfc5322, maxLength: 1024 }).ok).toBe(
@@ -541,9 +555,11 @@ describe('allowUnicode', () => {
     // which would be 29 characters.
     const domain = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.com`;
     expect(parseAddress(`${'é'.repeat(29)}@${domain}`, unicode).ok).toBe(true);
-    expect(parseAddress(`${'é'.repeat(29)}x@${domain}`, unicode)).toMatchObject(
-      { reason: 'syntax.address.too_long' },
-    );
+    expect(parseAddress(`${'é'.repeat(29)}x@${domain}`, unicode)).toEqual({
+      ok: false,
+      reason: 'syntax.address.too_long',
+      message: 'The address is longer than 254 characters',
+    });
   });
 
   it('leaves the domain ASCII', () => {

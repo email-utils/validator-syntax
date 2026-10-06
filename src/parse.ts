@@ -1,8 +1,9 @@
 // The address parser. One pass finds the last `@` outside a quoted string,
-// comment, or domain literal; then the local part and the domain are each
-// scanned left to right against the preset's rules, and the lengths, the
-// dot, and the TLD are checked last. The first failure wins, in the order
-// the corpus sets out (src/fixtures/index.ts).
+// comment, or domain literal; then the local part is scanned left to right
+// against the preset's rules and its length checked, then the domain the
+// same way, and the address length, the dot, and the TLD are checked last.
+// The first failure wins, in the order the corpus sets out
+// (src/fixtures/index.ts).
 import {
   codeAt,
   codePoints,
@@ -159,9 +160,14 @@ export function parse(
     return fail('syntax.address.empty');
   }
   // Before anything is scanned, so input of any size is rejected in
-  // constant time (validator-syntax#15).
+  // constant time (validator-syntax#15). The message names this limit, not
+  // the 254 cap.
   if (email.length > rules.maxLength) {
-    return fail('syntax.address.too_long');
+    return {
+      ok: false,
+      reason: 'syntax.address.too_long',
+      message: `The input is longer than the ${rules.maxLength}-character limit`,
+    };
   }
   const at = findAt(email, rules);
   if (at < 0) {

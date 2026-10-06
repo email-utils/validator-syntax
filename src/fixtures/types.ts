@@ -25,7 +25,10 @@ export const presets: readonly Preset[] = [
   'html5',
 ];
 
-/** The `syntax.*` codes from the reason-code catalogue (meta docs/api/reason-codes.md). */
+/**
+ * The `syntax.*` codes from the reason-code catalogue
+ * (https://email-utils.github.io/meta/docs/reference/reason-codes#validator-syntax).
+ */
 export type SyntaxReasonCode = ReasonCode;
 
 /**
