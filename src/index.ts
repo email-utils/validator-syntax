@@ -19,9 +19,9 @@ export type { ReasonCode, Result } from './result';
  * @remarks
  * Input longer than `maxLength` (512 UTF-16 code units by default) fails as
  * `syntax.address.too_long` before it's scanned. Otherwise the local part is
- * checked before the domain, each left to right, then the lengths, then a
- * dotless domain, then the TLD. `index`, where a failure has one, points at
- * the offending character.
+ * checked left to right, then its length; then the domain, left to right,
+ * then its length; then the address length, a dotless domain, and the TLD.
+ * `index`, where a failure has one, points at the offending character.
  *
  * @example
  * ```ts

@@ -1,6 +1,6 @@
-// The presets and the flat overrides on top of them (docs/api/
-// validator-syntax.md in meta, decision S1), resolved once into the rules
-// the parser runs.
+// The presets and the flat overrides on top of them
+// (https://email-utils.github.io/meta/docs/reference/validator-syntax#presets),
+// resolved once into the rules the parser runs.
 import { ATEXT, HTML5, LDH, PRACTICAL } from './chars';
 
 /** A base rule set; see {@link SyntaxOptions.preset}. */
