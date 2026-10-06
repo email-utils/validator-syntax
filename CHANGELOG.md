@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-rc.4](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-10-06)
+
+
+### Bug Fixes
+
+* **parser:** match two reason codes to the catalogue ([2502c5f](https://github.com/email-utils/validator-syntax/commit/2502c5fb395923227280c70b75f35ce8af562c7a))
+* **parser:** name the maxLength limit in its too_long message ([1ce1d2b](https://github.com/email-utils/validator-syntax/commit/1ce1d2bb754e749246ddf923cf833e71b526c102))
+
 ## [1.0.0-rc.3](https://github.com/email-utils/validator-syntax/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-09-30)
 
 
