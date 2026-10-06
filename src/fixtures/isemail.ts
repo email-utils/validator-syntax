@@ -705,14 +705,14 @@ export const isemailFixtures: readonly IsemailFixture[] = [
     address: '\r\n test@iana.org',
     description: 'Folded whitespace before the local part',
     feature: 'fws',
-    expected: allBut5322(fail('syntax.local.invalid_char', 0), valid),
+    expected: allBut5322(fail('syntax.local.unquoted_space', 0), valid),
   },
   {
     isemail: 89,
     address: '\r\n \r\n test@iana.org',
     description: 'Whitespace folded twice before the local part',
     feature: 'fws',
-    expected: allBut5322(fail('syntax.local.invalid_char', 0), valid),
+    expected: allBut5322(fail('syntax.local.unquoted_space', 0), valid),
   },
   {
     isemail: 90,
@@ -722,13 +722,13 @@ export const isemailFixtures: readonly IsemailFixture[] = [
     expected: rfc5322Only(fail('syntax.comment.not_allowed', 0)),
   },
   {
-    // The unclosed outer comment runs to the end, so no @ is outside it.
+    // The unclosed outer comment runs to the end, taking the @ with it.
     isemail: 91,
     address: '((comment)test@iana.org',
     description: 'Unterminated comment around a nested one',
     expected: allBut5322(
       fail('syntax.comment.not_allowed', 0),
-      fail('syntax.address.no_at'),
+      fail('syntax.comment.unterminated', 0),
     ),
   },
   {
@@ -822,7 +822,7 @@ export const isemailFixtures: readonly IsemailFixture[] = [
     description: 'Unterminated comment before the @',
     expected: allBut5322(
       fail('syntax.comment.not_allowed', 0),
-      fail('syntax.address.no_at'),
+      fail('syntax.comment.unterminated', 0),
     ),
   },
   {
@@ -857,7 +857,7 @@ export const isemailFixtures: readonly IsemailFixture[] = [
     description: 'Comment whose closing parenthesis is escaped',
     expected: allBut5322(
       fail('syntax.comment.not_allowed', 0),
-      fail('syntax.address.no_at'),
+      fail('syntax.comment.unterminated', 0),
     ),
   },
   {
@@ -1113,7 +1113,7 @@ export const isemailFixtures: readonly IsemailFixture[] = [
     address: '\r\n \r\ntest@iana.org',
     description: 'Folded whitespace ending in a CRLF',
     expected: allBut5322(
-      fail('syntax.local.invalid_char', 0),
+      fail('syntax.local.unquoted_space', 0),
       fail('syntax.local.invalid_char', 3),
     ),
   },
